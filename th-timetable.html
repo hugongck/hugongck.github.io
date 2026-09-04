@@ -190,21 +190,11 @@
         }
 
         /* Thicker and darker grey line for weekends and holidays */
-.gap-left {
-    border-left: none !important; /* Remove standard border to bypass collapse conflicts */
-}
+	.gap-left {
+    		border-left: 5px solid #666666 !important; 
+            	z-index: 40 !important;
+	}
 
-.gap-left::before {
-    content: '';
-    position: absolute;
-    top: -1px;
-    bottom: -1px;
-    left: -3px; /* Centers the 5px line directly over the cell boundary */
-    width: 5px;
-    background-color: #666666;
-    z-index: 5; /* Above standard borders, but below current cell (10) and time indicator (50) */
-    pointer-events: none;
-}
 
 
         /* Styling for the Before/After and Break rows */
