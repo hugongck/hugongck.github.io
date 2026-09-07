@@ -1290,9 +1290,9 @@
               const weekdayStr = weekdays[dateObj.getDay()];
               
               // mm月dd 星期x with line break, wrapped in .header-date (hidden in print)
-              dateLabel = `<span class="header-date">${m}月${d} ${weekdayStr}<br></span>`; 
+              dateLabel = `<span class="header-date"><br>${m}月${d} ${weekdayStr}</span>`; 
           }
-          html += `<th>${dateLabel}Day ${day}</th>`;
+          html += `<th>Day ${day}${dateLabel}</th>`;
       }
       html += '</tr></thead><tbody>';
 
