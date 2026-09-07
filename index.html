@@ -1249,246 +1249,227 @@ let globalTodos = [];
   }
 
 
-  setInterval(fetchTodoData, 10000);
+  setInterval(fetchTodoData, 5000);
   // Initial call on page load
   fetchTodoData();
 
 
     function injectTodos() {
-      const scheduleType = document.getElementById('scheduleType').value;
-      const currentSchedule = schedules[scheduleType];
+  // Clear any previously injected todo items
+  document.querySelectorAll('#timetable .todo-tag-list').forEach(el => el.remove());
 
-      const upcomingCycleDates = getUpcomingCycleDates();
-      const validTodoDates = {};
-      for (let d = 1; d <= 6; d++) {
-        if (upcomingCycleDates[d]) {
-          const parts = upcomingCycleDates[d].split('-');
-          validTodoDates[d] = `${parseInt(parts[1])}月${parseInt(parts[2])}`;
-        }
+  if (!globalTodos || globalTodos.length === 0) return;
+
+  const upcomingCycleDates = getUpcomingCycleDates();
+
+  globalTodos.forEach(todo => {
+    let matchedDay = null;
+
+    // Match todo date string (e.g. "2026-09-07" or "9/7") to Day 1–6
+    for (let day = 1; day <= 6; day++) {
+      const cycleDate = upcomingCycleDates[day];
+      if (!cycleDate) continue;
+
+      if (
+        todo.dateStr &&
+        (todo.dateStr === cycleDate ||
+          new Date(todo.dateStr).toDateString() === new Date(cycleDate).toDateString())
+      ) {
+        matchedDay = day;
+        break;
+      }
+      if (todo.day && (todo.day.includes(`Day ${day}`) || todo.day === `${day}`)) {
+        matchedDay = day;
+        break;
+      }
+    }
+
+    if (!matchedDay) return;
+
+    const hasTime = todo.time && todo.time.trim() !== '';
+    let targetTd = null;
+
+    if (!hasTime) {
+      // Untimed tasks -> inject into "before" row directly under Date/Day header
+      targetTd = document.querySelector(`#timetable td[data-day="${matchedDay}"][data-periods="before"]`);
+    } else {
+      // Timed tasks -> target corresponding time period row (or fallback to before)
+      targetTd =
+        document.querySelector(`#timetable td[data-day="${matchedDay}"][data-time="${todo.time}"]`) ||
+        document.querySelector(`#timetable td[data-day="${matchedDay}"][data-periods="before"]`);
+    }
+
+    if (targetTd) {
+      let tagList = targetTd.querySelector('.todo-tag-list');
+      if (!tagList) {
+        tagList = document.createElement('div');
+        tagList.className = 'todo-tag-list';
+        targetTd.appendChild(tagList);
       }
 
-      document.querySelectorAll('.todo-container').forEach(el => el.remove());
+      const item = document.createElement('div');
+      item.className = `todo-tag ${hasTime ? 'timed' : 'untimed'}`;
+      item.innerHTML = hasTime
+        ? `<small>${todo.time}</small> <span>${todo.text}</span>`
+        : `<span>📌 ${todo.text}</span>`;
 
-      globalTodos.forEach(todo => {
-        if (!todo.text || todo.text === "") return;
+      tagList.appendChild(item);
+    }
+  });
+}
 
-        // Only show TO-DO if its date corresponds to the upcoming active cycle day
-        if (todo.day && validTodoDates[todo.day] !== todo.dateStr) return;
 
-        let targetRowIndex = -1;
-        if (todo.time) {
-          const timeParts = todo.time.split(':');
-          if (timeParts.length >= 2) {
-            const todoMins = parseInt(timeParts[0], 10) * 60 + parseInt(timeParts[1], 10);
+function renderTable() {
+  const now = new Date();
+  const yyyy = now.getFullYear();
 
-            if (todoMins < currentSchedule[0].start) {
-              targetRowIndex = 'before';
-            } else if (todoMins >= currentSchedule[currentSchedule.length - 1].end) {
-              targetRowIndex = 'after';
-            } else {
-              // Find standard block
-              for (let i = 0; i < currentSchedule.length; i++) {
-                const p = currentSchedule[i];
-                if (todoMins >= p.start && todoMins < p.end) {
-                  targetRowIndex = i;
-                  break;
-                }
-              }
-            }
-          }
-        }
+  // Set document title to format: yyyy_[room name] for PDF saving
+  const currentRoomName = document.getElementById('roomTitle').textContent;
+  document.title = `${yyyy}_${currentRoomName}`;
 
-        let targetCell = null;
-        if (targetRowIndex !== -1 && todo.day) {
-          targetCell = document.querySelector(`td[data-day="${todo.day}"][data-periods~="${targetRowIndex}"]`);
-        } else if (todo.day) {
-          targetCell = document.querySelector(`th:nth-child(${parseInt(todo.day) + 1})`);
-        }
+  // Set bottom-left text: Last modified and Print date
+  const lastMod = new Date(document.lastModified);
+  const lmY = lastMod.getFullYear();
+  const lmMo = String(lastMod.getMonth() + 1).padStart(2, '0');
+  const lmD = String(lastMod.getDate()).padStart(2, '0');
+  const lmH = String(lastMod.getHours()).padStart(2, '0');
+  const lmMin = String(lastMod.getMinutes()).padStart(2, '0');
 
-        if (targetCell) {
-          let container = targetCell.querySelector('.todo-container');
-          if (!container) {
-            container = document.createElement('div');
-            container.className = 'todo-container';
-            targetCell.appendChild(container);
-          }
+  const footerEl = document.getElementById('footer-text');
+  if (footerEl) {
+    footerEl.innerHTML = `Last Modified: ${lmY}${lmMo}${lmD}${lmH}${lmMin} <span class="print-date"></span>`;
+  }
 
-          const el = document.createElement('div');
-          el.className = 'todo-item';
+  const roomSelect = document.getElementById('roomSelect');
+  document.getElementById('roomTitle').textContent = roomSelect.options[roomSelect.selectedIndex].text;
 
-          if (todo.text.startsWith('Lab')) {
-            el.style.backgroundColor = 'rgba(255, 205, 210, 0.95)';
-            el.style.borderLeft = '3px solid #d32f2f';
-          } else if (todo.text.startsWith('VTC') || todo.text.startsWith('升旗')) {
-            el.style.backgroundColor = 'rgba(225, 190, 231, 0.95)';
-            el.style.borderLeft = '3px solid #8e24aa';
+  const selectedRoom = roomSelect.value;
+  const timetableData = roomData[selectedRoom] || {};
+
+  const scheduleType = document.getElementById('scheduleType').value;
+  const currentSchedule = schedules[scheduleType];
+
+  // Fetch upcoming dates for mm/dd and day of week
+  const upcomingCycleDates = getUpcomingCycleDates();
+  const weekdays = ['星期日', '星期一', '星期二', '星期三', '星期四', '星期五', '星期六'];
+
+  let html = '<thead><tr><th></th>';
+  for (let day = 1; day <= 6; day++) {
+    let dateLabel = '';
+    if (upcomingCycleDates[day]) {
+      const parts = upcomingCycleDates[day].split('-');
+      const y = parseInt(parts[0], 10);
+      const m = parseInt(parts[1], 10);
+      const d = parseInt(parts[2], 10);
+      const dateObj = new Date(y, m - 1, d);
+      const weekdayStr = weekdays[dateObj.getDay()];
+
+      dateLabel = `<span class="header-date"><br>${m}月${d} ${weekdayStr}</span>`;
+    }
+    html += `<th>Day ${day}${dateLabel}</th>`;
+  }
+  html += '</tr></thead><tbody>';
+
+  // BEFORE-PERIOD ROW (Header level - untimed TO-DOs land here)
+  html += `<tr class="before-period-row"><td class="time-col"></td>`;
+  for (let day = 1; day <= 6; day++) {
+    html += `<td data-day="${day}" data-periods="before" class="todo-cell-before"></td>`;
+  }
+  html += `</tr>`;
+
+  let skipCount = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0, 6: 0 };
+
+  currentSchedule.forEach((period, index) => {
+    const timeStr = `${formatMinutes(period.start)} - ${formatMinutes(period.end)}`;
+    const isBreak = period.name === '小息' || period.name === 'Lunch';
+    const rowClass = isBreak ? ' class="break-row"' : '';
+
+    html += `<tr${rowClass}>`;
+    html += `<td class="time-col">${period.name}<br><small>${timeStr}</small></td>`;
+
+    for (let day = 1; day <= 6; day++) {
+      if (skipCount[day] > 0) {
+        skipCount[day]--;
+        continue;
+      }
+
+      const cellKey = `${day}-${index}`;
+      const classData = timetableData[cellKey];
+      let cellContent = '';
+      let bgClass = '';
+      let rowspan = 1;
+
+      if (classData) {
+        bgClass = getBgClass(classData.cls);
+        cellContent = `
+          <span class="class-text">${classData.cls}</span>
+          <span class="teacher-text">${classData.tchr}</span>
+        `;
+
+        for (let nextIdx = index + 1; nextIdx < currentSchedule.length; nextIdx++) {
+          let nextData = timetableData[`${day}-${nextIdx}`];
+          if (nextData && nextData.cls === classData.cls && nextData.tchr === classData.tchr) {
+            rowspan++;
           } else {
-            el.style.backgroundColor = 'rgba(255, 235, 59, 0.95)';
-            el.style.borderLeft = '3px solid #f57f17';
+            break;
           }
-
-          el.innerHTML = todo.text;
-          container.appendChild(el);
         }
-      });
+      }
+
+      if (rowspan > 1) {
+        skipCount[day] = rowspan - 1;
+      }
+
+      let periodsArray = [];
+      for (let r = 0; r < rowspan; r++) {
+        periodsArray.push(index + r);
+      }
+      let periodsAttr = periodsArray.join(' ');
+
+      html += `<td data-day="${day}" data-periods="${periodsAttr}" rowspan="${rowspan}" class="${bgClass}">${cellContent}</td>`;
     }
+    html += '</tr>';
+  });
 
-    function renderTable() {
-      const now = new Date();
-      const yyyy = now.getFullYear();
-      const mo = String(now.getMonth() + 1).padStart(2, '0');
-      const dd = String(now.getDate()).padStart(2, '0');
-      const hh = String(now.getHours()).padStart(2, '0');
-      const min = String(now.getMinutes()).padStart(2, '0');
+  // AFTER-PERIOD ROW
+  html += `<tr class="after-period-row"><td class="time-col"></td>`;
+  for (let day = 1; day <= 6; day++) {
+    html += `<td data-day="${day}" data-periods="after" class="todo-cell-after"></td>`;
+  }
+  html += `</tr>`;
 
-      // Set document title to format: yyyy_[room name] for PDF saving
-      const currentRoomName = document.getElementById('roomTitle').textContent;
-      document.title = `${yyyy}_${currentRoomName}`;
+  html += '</tbody>';
 
-      // Set bottom-left text: Last modified (File save time) and Print date
-      const lastMod = new Date(document.lastModified);
-      const lmY = lastMod.getFullYear();
-      const lmMo = String(lastMod.getMonth() + 1).padStart(2, '0');
-      const lmD = String(lastMod.getDate()).padStart(2, '0');
-      const lmH = String(lastMod.getHours()).padStart(2, '0');
-      const lmMin = String(lastMod.getMinutes()).padStart(2, '0');
+  document.getElementById('timetable').innerHTML = html;
 
-      const footerEl = document.getElementById('footer-text');
-      if (footerEl) {
-        footerEl.innerHTML = `Last Modified: ${lmY}${lmMo}${lmD}${lmH}${lmMin} <span class="print-date"></span>`;
-      }
+  // Injects untimed and timed TODOs
+  injectTodos();
+  updateRealtimeHighlight();
+  applyFilter();
 
+  const sortedDays = Object.keys(upcomingCycleDates).sort(
+    (a, b) => new Date(upcomingCycleDates[a]) - new Date(upcomingCycleDates[b])
+  );
 
-      const roomSelect = document.getElementById('roomSelect');
-      document.getElementById('roomTitle').textContent = roomSelect.options[roomSelect.selectedIndex].text;
+  for (let i = 0; i < sortedDays.length - 1; i++) {
+    const currentDay = sortedDays[i];
+    const nextDay = sortedDays[i + 1];
 
-      const selectedRoom = roomSelect.value;
-      const timetableData = roomData[selectedRoom] || {};
+    const currDate = new Date(upcomingCycleDates[currentDay]);
+    const nextDate = new Date(upcomingCycleDates[nextDay]);
+    const diffDays = Math.ceil(Math.abs(nextDate - currDate) / (1000 * 60 * 60 * 24));
 
-      const scheduleType = document.getElementById('scheduleType').value;
-      const currentSchedule = schedules[scheduleType];
-
-      // Fetch the upcoming dates so we can extract mm/dd and day of week
-      const upcomingCycleDates = getUpcomingCycleDates();
-      const weekdays = ['星期日', '星期一', '星期二', '星期三', '星期四', '星期五', '星期六'];
-
-      let html = '<thead><tr><th></th>';
-      for(let day = 1; day <= 6; day++) {
-          let dateLabel = '';
-          if (upcomingCycleDates[day]) {
-              const parts = upcomingCycleDates[day].split('-');
-              const y = parseInt(parts[0], 10);
-              const m = parseInt(parts[1], 10);
-              const d = parseInt(parts[2], 10);
-              const dateObj = new Date(y, m - 1, d);
-              const weekdayStr = weekdays[dateObj.getDay()];
-              
-              // mm月dd 星期x with line break, wrapped in .header-date (hidden in print)
-              dateLabel = `<span class="header-date"><br>${m}月${d} ${weekdayStr}</span>`; 
-          }
-          html += `<th>Day ${day}${dateLabel}</th>`;
-      }
-      html += '</tr></thead><tbody>';
-
-      html += `<tr class="short-row"><td class="time-col"></td>`;
-      for (let day = 1; day <= 6; day++) {
-        html += `<td data-day="${day}" data-periods="before"></td>`;
-      }
-      html += `</tr>`;
-
-      let skipCount = {
-        1: 0,
-        2: 0,
-        3: 0,
-        4: 0,
-        5: 0,
-        6: 0
-      };
-
-      currentSchedule.forEach((period, index) => {
-        const timeStr = `${formatMinutes(period.start)} - ${formatMinutes(period.end)}`;
-        const isBreak = period.name === '小息' || period.name === 'Lunch';
-        const rowClass = isBreak ? ' class="break-row"' : '';
-
-        html += `<tr${rowClass}>`;
-        html += `<td class="time-col">${period.name}<br><small>${timeStr}</small></td>`;
-
-        for (let day = 1; day <= 6; day++) {
-          if (skipCount[day] > 0) {
-            skipCount[day]--;
-            continue;
-          }
-
-          const cellKey = `${day}-${index}`;
-          const classData = timetableData[cellKey];
-          let cellContent = '';
-          let bgClass = '';
-          let rowspan = 1;
-
-          if (classData) {
-            bgClass = getBgClass(classData.cls);
-            cellContent = `
-                            <span class="class-text">${classData.cls}</span>
-                            <span class="teacher-text">${classData.tchr}</span>
-                        `;
-
-            for (let nextIdx = index + 1; nextIdx < currentSchedule.length; nextIdx++) {
-              let nextData = timetableData[`${day}-${nextIdx}`];
-              if (nextData && nextData.cls === classData.cls && nextData.tchr === classData.tchr) {
-                rowspan++;
-              } else {
-                break;
-              }
-            }
-          }
-
-          if (rowspan > 1) {
-            skipCount[day] = rowspan - 1;
-          }
-
-          let periodsArray = [];
-          for (let r = 0; r < rowspan; r++) {
-            periodsArray.push(index + r);
-          }
-          let periodsAttr = periodsArray.join(' ');
-
-          html += `<td data-day="${day}" data-periods="${periodsAttr}" rowspan="${rowspan}" class="${bgClass}">${cellContent}</td>`;
-        }
-        html += '</tr>';
-      });
-
-      html += `<tr class="short-row"><td class="time-col"></td>`;
-      for (let day = 1; day <= 6; day++) {
-        html += `<td data-day="${day}" data-periods="after"></td>`;
-      }
-      html += `</tr>`;
-
-      html += '</tbody>';
-
-      document.getElementById('timetable').innerHTML = html;
-
-      injectTodos();
-      updateRealtimeHighlight();
-      applyFilter();
-
-      const sortedDays = Object.keys(upcomingCycleDates).sort((a, b) => new Date(upcomingCycleDates[a]) - new Date(upcomingCycleDates[b]));
-
-      for (let i = 0; i < sortedDays.length - 1; i++) {
-        const currentDay = sortedDays[i];
-        const nextDay = sortedDays[i + 1];
-
-        const currDate = new Date(upcomingCycleDates[currentDay]);
-        const nextDate = new Date(upcomingCycleDates[nextDay]);
-        const diffDays = Math.ceil(Math.abs(nextDate - currDate) / (1000 * 60 * 60 * 24));
-
-        if (diffDays > 1) {
-          const targetColIndex = parseInt(nextDay);
-          document.querySelectorAll(`th:nth-child(${targetColIndex + 1}), td[data-day="${targetColIndex}"]`).forEach(el => {
-            el.classList.add('gap-left');
-          });
-        }
-      }
+    if (diffDays > 1) {
+      const targetColIndex = parseInt(nextDay, 10);
+      document
+        .querySelectorAll(`th:nth-child(${targetColIndex + 1}), td[data-day="${targetColIndex}"]`)
+        .forEach(el => {
+          el.classList.add('gap-left');
+        });
     }
+  }
+}
+
 
     function applyFilter() {
       const filterToUse = hoverFilter || activeFilter;
