@@ -1273,11 +1273,19 @@
       const scheduleType = document.getElementById('scheduleType').value;
       const currentSchedule = schedules[scheduleType];
 
-      let html = '<thead><tr><th></th>';
-      for (let day = 1; day <= 6; day++) {
-        html += `<th>Day ${day}</th>`;
-      }
-      html += '</tr></thead><tbody>';
+            const upcomingCycleDates = getUpcomingCycleDates();
+            
+            let html = '<thead><tr><th></th>';
+            for(let day = 1; day <= 6; day++) {
+                let dateLabel = '';
+                if (upcomingCycleDates[day]) {
+                    const parts = upcomingCycleDates[day].split('-'); // splits 'YYYY-MM-DD'
+                    dateLabel = `${parts[1]}/${parts[2]}<br>`; // Format: MM/DD with a line break (or use a space ' ' instead of <br>)
+                }
+                html += `<th>${dateLabel}Day ${day}</th>`;
+            }
+            html += '</tr></thead><tbody>';
+
 
       html += `<tr class="short-row"><td class="time-col"></td>`;
       for (let day = 1; day <= 6; day++) {
