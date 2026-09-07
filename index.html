@@ -209,7 +209,7 @@
             background-color: #e5e5e5;
         }        
 
-	/* --- ADD THIS TO THE BOTTOM OF YOUR <style> TAG --- */
+	        /* --- ADD THIS TO THE BOTTOM OF YOUR <style> TAG --- */
         @media print {
             /* Force background colors to print for the color PDF */
             * {
@@ -218,13 +218,11 @@
                 print-color-adjust: exact !important;
             }
 
-            /* Remove room schedule dropdown text */
-            .controls-left {
-                display: none !important;
-            }
-
-            /* Remove day time status text */
-            #statusText {
+            /* Remove UI controls, status text, time indicator, and TO-DO items */
+            .controls-left, 
+            #statusText, 
+            #time-indicator, 
+            .todo-container {
                 display: none !important;
             }
             
@@ -233,39 +231,40 @@
                 justify-content: center !important;
             }
 
-            /* Remove weekend line (resets thicker border to standard table border) */
-            .gap-left {
-                border-left: 1px solid #000000 !important;
+            /* Remove the "before" and "after" time rows */
+            tr.short-row {
+                display: none !important;
             }
 
-            /* Remove current day border */
-            .highlight-col {
+            /* Force all table borders to be a perfect 1px solid black line */
+            table {
+                border-collapse: collapse !important;
+            }
+            th, td {
+                border: 1px solid #000000 !important;
+                box-sizing: border-box !important;
+            }
+
+            /* Strip thick borders from current day, weekends, and top headers */
+            .highlight-col, 
+            th.highlight-col, 
+            .highlight-col-bottom, 
+            .gap-left {
+                border-top: 1px solid #000000 !important;
+                border-bottom: 1px solid #000000 !important;
                 border-left: 1px solid #000000 !important;
                 border-right: 1px solid #000000 !important;
-                border-top: 1px solid #000000 !important;
-            }
-            .highlight-col-bottom {
-                border-bottom: 1px solid #000000 !important;
             }
 
-            /* Remove current period border & red text */
+            /* Remove current period red outline overlay and red text */
             td.highlight-cell::after {
                 display: none !important;
             }
             .time-col {
                 color: #000000 !important; 
             }
-
-            /* Remove current time indicator */
-            #time-indicator {
-                display: none !important;
-            }
-
-            /* Remove TO-DO items from Google Sheet */
-            .todo-container {
-                display: none !important;
-            }
         }
+
 
     </style>
 </head>
