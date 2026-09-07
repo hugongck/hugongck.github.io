@@ -222,11 +222,15 @@
         }
 
 
-        @media print {@page {
-                size: A4 portrait;
-                margin: 10mm;
+        @media print {
+		@page {
+                size: A4 landscape;
+                margin: 1cm;
             }
-            
+body {
+    width: 100%;
+  }            
+
             /* Stretch the table to maximize A4 page space */
             table {
                 height: 93vh !important; 
@@ -557,7 +561,7 @@
             // Set bottom-left text: Last modified and Print date
             const footerEl = document.getElementById('footer-text');
             if (footerEl) {
-                footerEl.innerHTML = `Last Modified: ${yyyy}${mo}${dd}${hh}${min} <span class="print-date"> | Printed: ${yyyy}-${mo}-${dd}</span>`;
+                footerEl.innerHTML = `Last Modified: ${yyyy}${mo}${dd}${hh}${min} <span class="print-date"></span>`;
             }
 
             const roomSelect = document.getElementById('roomSelect');
