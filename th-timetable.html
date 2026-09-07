@@ -285,7 +285,9 @@
         height: auto !important;
         /* Overrides the fixed 50px height */
       }
-
+.header-date {
+                display: none !important;
+            }
       /* Reveal the print date next to the modified date */
       .print-date {
         display: inline !important;
@@ -1281,11 +1283,13 @@ for(let day = 1; day <= 6; day++) {
     let dateLabel = '';
     if (upcomingCycleDates[day]) {
         const parts = upcomingCycleDates[day].split('-');
-        dateLabel = `(${parts[1]}月${parts[2]})  `; // Formats as (mm/dd)
+        // Wrap the date in a specific class for print styling
+        dateLabel = `<span class="header-date">(${parts[1]}/${parts[2]}) </span>`; 
     }
     html += `<th>${dateLabel}Day ${day}</th>`;
 }
 html += '</tr></thead><tbody>';
+
 
 
       html += `<tr class="short-row"><td class="time-col"></td>`;
