@@ -1369,7 +1369,6 @@ html += '</tr></thead><tbody>';
       updateRealtimeHighlight();
       applyFilter();
 
-      const upcomingCycleDates = getUpcomingCycleDates();
       const sortedDays = Object.keys(upcomingCycleDates).sort((a, b) => new Date(upcomingCycleDates[a]) - new Date(upcomingCycleDates[b]));
 
       for (let i = 0; i < sortedDays.length - 1; i++) {
