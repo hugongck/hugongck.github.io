@@ -64,7 +64,7 @@
 
     td {
       position: relative;
-      height: 48px;
+      height: 46px;
       padding: 2px;
     }
 
@@ -389,15 +389,15 @@
     </div>
 
     <script>
-    const SHEET_CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vQ8pmhmnpAaM5paBA8N-bURKQkw8Tzoh0TRLCR1-Ax-nLyoCC2JFFkAZ4cKEukDhdedj-ktlSJk-Tse/pub?gid=1168039585&single=true&output=csv";
-    let globalTodos = [];
+    // Extract your actual Spreadsheet ID from your browser URL:
+// https://docs.google.com/spreadsheets/d/YOUR_SPREADSHEET_ID/edit#gid=1168039585
 
-    // State trackers to prevent CDN cache bouncing
-    let currentCsvText = "";
-    const seenStatesMap = new Map();
-    let pendingCsvText = "";
-    let pendingCount = 0;
-    const CONFIRMATION_THRESHOLD = 2; // Requires 2 consecutive fetches before accepting an intentional revert
+const SPREADSHEET_ID = "YOUR_SPREADSHEET_ID_HERE"; 
+const GID = "1168039585"; // Your sheet GID
+
+const SHEET_CSV_URL = `https://docs.google.com/spreadsheets/d/${SPREADSHEET_ID}/gviz/tq?tqx=out:csv&gid=${GID}`;
+
+    let globalTodos = [];
 
     const cycleDays = {
       '2026-09-02': 1,
@@ -1119,88 +1119,106 @@
     }
 
     async function fetchTodoData() {
-      try {
-        const cacheBusterUrl = SHEET_CSV_URL + "&t=" + new Date().getTime();
-        const res = await fetch(cacheBusterUrl);
-        const text = await res.text();
-        const trimmedText = text.trim();
+  try {
+    // Bust browser & edge CDN caches
+    const cacheBusterUrl = `${SHEET_CSV_URL}&headers=0&_=${Date.now()}`;
+    const res = await fetch(cacheBusterUrl, { cache: 'no-store' });
+    const text = await res.text();
+    const trimmedText = text.trim();
 
-        if (!trimmedText) return;
+    if (!trimmedText) return;
 
-        // --- ANTI-BOUNCING CDN GUARD ---
-        if (currentCsvText === "") {
-          currentCsvText = trimmedText;
-          seenStatesMap.set(trimmedText, Date.now());
-        } else if (trimmedText !== currentCsvText) {
-          const currentTime = Date.now();
-          const isRevert = seenStatesMap.has(trimmedText) && 
-                           (seenStatesMap.get(trimmedText) < seenStatesMap.get(currentCsvText));
+    // --- ANTI-BOUNCING CDN GUARD & CHANGE DETECTION ---
+    let dataHasChanged = false;
 
-          if (isRevert) {
-            // Stale CDN node response detected!
-            if (pendingCsvText === trimmedText) {
-              pendingCount++;
-            } else {
-              pendingCsvText = trimmedText;
-              pendingCount = 1;
-            }
+    if (currentCsvText === "") {
+      // Initial Load
+      currentCsvText = trimmedText;
+      seenStatesMap.set(trimmedText, Date.now());
+      dataHasChanged = true;
+    } else if (trimmedText !== currentCsvText) {
+      const currentTime = Date.now();
+      const isRevert = seenStatesMap.has(trimmedText) && 
+                       (seenStatesMap.get(trimmedText) < seenStatesMap.get(currentCsvText));
 
-            // Reject stale responses unless repeated multiple times continuously
-            if (pendingCount < CONFIRMATION_THRESHOLD) {
-              return; 
-            }
-          }
-
-          // State is accepted (either brand new update or confirmed intentional revert)
-          currentCsvText = trimmedText;
-          seenStatesMap.set(trimmedText, currentTime);
-          pendingCsvText = "";
-          pendingCount = 0;
+      if (isRevert) {
+        if (pendingCsvText === trimmedText) {
+          pendingCount++;
         } else {
-          pendingCsvText = "";
-          pendingCount = 0;
+          pendingCsvText = trimmedText;
+          pendingCount = 1;
         }
 
-        // Parse CSV data
-        const lines = trimmedText.split(/\r?\n/);
-        let newTodos = [];
-        for (let i = 1; i < lines.length; i++) {
-          const row = lines[i].trim();
-          if (!row) continue;
-
-          const cols = row.split(',');
-          if (cols.length >= 6) {
-            newTodos.push({
-              dateStr: cols[0].trim(),
-              day: cols[1].trim(),
-              time: cols[4].trim(),
-              text: cols.slice(5).join(',').trim()
-            });
-          }
-        }
-        globalTodos = newTodos;
-
-        // Update the sync timestamp
-        const syncTime = new Date();
-        const h = String(syncTime.getHours()).padStart(2, '0');
-        const m = String(syncTime.getMinutes()).padStart(2, '0');
-        const s = String(syncTime.getSeconds()).padStart(2, '0');
-        const sheetFooterEl = document.getElementById('sheet-update-footer');
-        if (sheetFooterEl) {
-          sheetFooterEl.textContent = `Last Updated: ${h}:${m}:${s}`;
-          sheetFooterEl.style.color = '#666666';
-        }
-
-        renderTable();
-      } catch (e) {
-        console.error("Failed fetching TO-DOs", e);
-        const sheetFooterEl = document.getElementById('sheet-update-footer');
-        if (sheetFooterEl) {
-          sheetFooterEl.textContent = `Sync Failed! Check console.`;
-          sheetFooterEl.style.color = '#EA0000';
+        // Wait for consecutive fetches before accepting an intentional revert
+        if (pendingCount < CONFIRMATION_THRESHOLD) {
+          return; 
         }
       }
+
+      // Valid new edit accepted
+      currentCsvText = trimmedText;
+      seenStatesMap.set(trimmedText, currentTime);
+      pendingCsvText = "";
+      pendingCount = 0;
+      dataHasChanged = true;
+    } else {
+      pendingCsvText = "";
+      pendingCount = 0;
     }
+
+    // Update the sync timestamp display
+    const syncTime = new Date();
+    const h = String(syncTime.getHours()).padStart(2, '0');
+    const m = String(syncTime.getMinutes()).padStart(2, '0');
+    const s = String(syncTime.getSeconds()).padStart(2, '0');
+    const sheetFooterEl = document.getElementById('sheet-update-footer');
+    if (sheetFooterEl) {
+      sheetFooterEl.textContent = `Last Checked: ${h}:${m}:${s}`;
+      sheetFooterEl.style.color = '#666666';
+    }
+
+    // Parse and re-render ONLY if data has actually changed
+    if (dataHasChanged) {
+      const lines = trimmedText.split(/\r?\n/);
+      let newTodos = [];
+      
+      for (let i = 0; i < lines.length; i++) {
+        const row = lines[i].trim();
+        if (!row) continue;
+
+        // Clean quotes added by GViz format
+        const cols = row.split(',').map(col => col.replace(/^"|"$/g, '').trim());
+        
+        // Skip header row if present
+        if (i === 0 && (cols[0].toLowerCase().includes('date') || cols[0].toLowerCase().includes('日期'))) {
+          continue;
+        }
+
+        if (cols.length >= 6) {
+          newTodos.push({
+            dateStr: cols[0],
+            day: cols[1],
+            time: cols[4],
+            text: cols.slice(5).join(',')
+          });
+        }
+      }
+
+      globalTodos = newTodos;
+      renderTable();
+    }
+  } catch (e) {
+    console.error("Failed fetching TO-DOs", e);
+    const sheetFooterEl = document.getElementById('sheet-update-footer');
+    if (sheetFooterEl) {
+      sheetFooterEl.textContent = `Sync Failed! Check console.`;
+      sheetFooterEl.style.color = '#EA0000';
+    }
+  }
+}
+
+
+
 
     function injectTodos() {
       const scheduleType = document.getElementById('scheduleType').value;
@@ -1220,6 +1238,7 @@
       globalTodos.forEach(todo => {
         if (!todo.text || todo.text === "") return;
 
+        // Only show TO-DO if its date corresponds to the upcoming active cycle day
         if (todo.day && validTodoDates[todo.day] !== todo.dateStr) return;
 
         let targetRowIndex = -1;
@@ -1233,6 +1252,7 @@
             } else if (todoMins >= currentSchedule[currentSchedule.length - 1].end) {
               targetRowIndex = 'after';
             } else {
+              // Find standard block
               for (let i = 0; i < currentSchedule.length; i++) {
                 const p = currentSchedule[i];
                 if (todoMins >= p.start && todoMins < p.end) {
@@ -1287,9 +1307,11 @@
       const hh = String(now.getHours()).padStart(2, '0');
       const min = String(now.getMinutes()).padStart(2, '0');
 
+      // Set document title to format: yyyy_[room name] for PDF saving
       const currentRoomName = document.getElementById('roomTitle').textContent;
       document.title = `${yyyy}_${currentRoomName}`;
 
+      // Set bottom-left text: Last modified (File save time) and Print date
       const lastMod = new Date(document.lastModified);
       const lmY = lastMod.getFullYear();
       const lmMo = String(lastMod.getMonth() + 1).padStart(2, '0');
@@ -1302,6 +1324,7 @@
         footerEl.innerHTML = `Last Modified: ${lmY}${lmMo}${lmD}${lmH}${lmMin} <span class="print-date"></span>`;
       }
 
+
       const roomSelect = document.getElementById('roomSelect');
       document.getElementById('roomTitle').textContent = roomSelect.options[roomSelect.selectedIndex].text;
 
@@ -1311,6 +1334,7 @@
       const scheduleType = document.getElementById('scheduleType').value;
       const currentSchedule = schedules[scheduleType];
 
+      // Fetch the upcoming dates so we can extract mm/dd and day of week
       const upcomingCycleDates = getUpcomingCycleDates();
       const weekdays = ['星期日', '星期一', '星期二', '星期三', '星期四', '星期五', '星期六'];
 
@@ -1325,6 +1349,7 @@
               const dateObj = new Date(y, m - 1, d);
               const weekdayStr = weekdays[dateObj.getDay()];
               
+              // mm月dd 星期x with line break, wrapped in .header-date (hidden in print)
               dateLabel = `<span class="header-date"><br>${m}月${d} ${weekdayStr}</span>`; 
           }
           html += `<th>Day ${day}${dateLabel}</th>`;
