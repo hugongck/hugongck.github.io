@@ -207,7 +207,66 @@
         }
         tr.short-row td.time-col {
             background-color: #e5e5e5;
+        }        
+
+	/* --- ADD THIS TO THE BOTTOM OF YOUR <style> TAG --- */
+        @media print {
+            /* Force background colors to print for the color PDF */
+            * {
+                -webkit-print-color-adjust: exact !important;
+                color-adjust: exact !important;
+                print-color-adjust: exact !important;
+            }
+
+            /* Remove room schedule dropdown text */
+            .controls-left {
+                display: none !important;
+            }
+
+            /* Remove day time status text */
+            #statusText {
+                display: none !important;
+            }
+            
+            /* Center the room title for the printed document */
+            .controls {
+                justify-content: center !important;
+            }
+
+            /* Remove weekend line (resets thicker border to standard table border) */
+            .gap-left {
+                border-left: 1px solid #000000 !important;
+            }
+
+            /* Remove current day border */
+            .highlight-col {
+                border-left: 1px solid #000000 !important;
+                border-right: 1px solid #000000 !important;
+                border-top: 1px solid #000000 !important;
+            }
+            .highlight-col-bottom {
+                border-bottom: 1px solid #000000 !important;
+            }
+
+            /* Remove current period border & red text */
+            td.highlight-cell::after {
+                display: none !important;
+            }
+            .time-col {
+                color: #000000 !important; 
+            }
+
+            /* Remove current time indicator */
+            #time-indicator {
+                display: none !important;
+            }
+
+            /* Remove TO-DO items from Google Sheet */
+            .todo-container {
+                display: none !important;
+            }
         }
+
     </style>
 </head>
 <body>
