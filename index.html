@@ -64,7 +64,7 @@
 
     td {
       position: relative;
-      height: 46px;
+      height: 48px;
       padding: 2px;
     }
 
@@ -391,6 +391,7 @@
     <script>
     const SHEET_CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vQ8pmhmnpAaM5paBA8N-bURKQkw8Tzoh0TRLCR1-Ax-nLyoCC2JFFkAZ4cKEukDhdedj-ktlSJk-Tse/pub?gid=1168039585&single=true&output=csv";
     let globalTodos = [];
+    let lastFetchedModifiedTime = 0;
 
     const cycleDays = {
       '2026-09-02': 1,
@@ -1111,11 +1112,41 @@
       return upcomingDates;
     }
 
+    function parseCSVRow(row) {
+      const result = [];
+      let current = '';
+      let inQuotes = false;
+      for (let i = 0; i < row.length; i++) {
+        const char = row[i];
+        if (char === '"' || char === "'") {
+          inQuotes = !inQuotes;
+        } else if (char === ',' && !inQuotes) {
+          result.push(current);
+          current = '';
+        } else {
+          current += char;
+        }
+      }
+      result.push(current);
+      return result;
+    }
+
     async function fetchTodoData() {
       try {
-        // Append a timestamp to the URL to bypass Google Sheets caching
-        const cacheBusterUrl = SHEET_CSV_URL + "&t=" + new Date().getTime();
+        const cacheBusterUrl = SHEET_CSV_URL + (SHEET_CSV_URL.includes('?') ? '&' : '?') + "t=" + Date.now();
         const res = await fetch(cacheBusterUrl);
+        if (!res.ok) throw new Error(`HTTP Error ${res.status}`);
+
+        // Prevent stale CDN edge server responses from overwriting newer local state
+        const lastModifiedHeader = res.headers.get('last-modified');
+        if (lastModifiedHeader) {
+          const fetchedTime = new Date(lastModifiedHeader).getTime();
+          if (fetchedTime < lastFetchedModifiedTime) {
+            return; // Skip stale response quietly
+          }
+          lastFetchedModifiedTime = fetchedTime;
+        }
+
         const text = await res.text();
         const lines = text.split(/\r?\n/);
         let newTodos = [];
@@ -1123,7 +1154,7 @@
           const row = lines[i].trim();
           if (!row) continue;
 
-          const cols = row.split(',');
+          const cols = parseCSVRow(row);
           if (cols.length >= 6) {
             newTodos.push({
               dateStr: cols[0].trim(),
@@ -1133,32 +1164,38 @@
             });
           }
         }
-        globalTodos = newTodos;
 
-        // --- NEW CODE: Update the sync timestamp ---
-        const syncTime = new Date();
-        const h = String(syncTime.getHours()).padStart(2, '0');
-        const m = String(syncTime.getMinutes()).padStart(2, '0');
-        const s = String(syncTime.getSeconds()).padStart(2, '0');
-        const sheetFooterEl = document.getElementById('sheet-update-footer');
-        if (sheetFooterEl) {
-          sheetFooterEl.textContent = `Last Updated: ${h}:${m}:${s}`;
-          sheetFooterEl.style.color = '#666666'; // Resets color on successful fetch
+        // Only update UI if the fetched dataset actually changed
+        if (JSON.stringify(globalTodos) === JSON.stringify(newTodos)) {
+          updateSyncFooter(true);
+          return;
         }
 
-        // -------------------------------------------
-
+        globalTodos = newTodos;
+        updateSyncFooter(true);
         renderTable();
       } catch (e) {
         console.error("Failed fetching TO-DOs", e);
-        const sheetFooterEl = document.getElementById('sheet-update-footer');
-        if (sheetFooterEl) {
+        updateSyncFooter(false);
+      }
+    }
+
+    function updateSyncFooter(success) {
+      const sheetFooterEl = document.getElementById('sheet-update-footer');
+      if (sheetFooterEl) {
+        if (success) {
+          const syncTime = new Date();
+          const h = String(syncTime.getHours()).padStart(2, '0');
+          const m = String(syncTime.getMinutes()).padStart(2, '0');
+          const s = String(syncTime.getSeconds()).padStart(2, '0');
+          sheetFooterEl.textContent = `Last Updated: ${h}:${m}:${s}`;
+          sheetFooterEl.style.color = '#666666';
+        } else {
           sheetFooterEl.textContent = `Sync Failed! Check console.`;
           sheetFooterEl.style.color = '#EA0000';
         }
       }
     }
-
 
     function injectTodos() {
       const scheduleType = document.getElementById('scheduleType').value;
@@ -1242,10 +1279,6 @@
     function renderTable() {
       const now = new Date();
       const yyyy = now.getFullYear();
-      const mo = String(now.getMonth() + 1).padStart(2, '0');
-      const dd = String(now.getDate()).padStart(2, '0');
-      const hh = String(now.getHours()).padStart(2, '0');
-      const min = String(now.getMinutes()).padStart(2, '0');
 
       // Set document title to format: yyyy_[room name] for PDF saving
       const currentRoomName = document.getElementById('roomTitle').textContent;
@@ -1263,7 +1296,6 @@
       if (footerEl) {
         footerEl.innerHTML = `Last Modified: ${lmY}${lmMo}${lmD}${lmH}${lmMin} <span class="print-date"></span>`;
       }
-
 
       const roomSelect = document.getElementById('roomSelect');
       document.getElementById('roomTitle').textContent = roomSelect.options[roomSelect.selectedIndex].text;
@@ -1289,7 +1321,6 @@
               const dateObj = new Date(y, m - 1, d);
               const weekdayStr = weekdays[dateObj.getDay()];
               
-              // mm月dd 星期x with line break, wrapped in .header-date (hidden in print)
               dateLabel = `<span class="header-date"><br>${m}月${d} ${weekdayStr}</span>`; 
           }
           html += `<th>Day ${day}${dateLabel}</th>`;
