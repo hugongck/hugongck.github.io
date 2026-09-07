@@ -396,8 +396,12 @@ const SPREADSHEET_ID = "1EBeAtsbiF1jjUxIy0pk0UIF0qDYzA6ACCHHI4AGCCho";
 const GID = "1168039585"; // Your sheet GID
 
 const SHEET_CSV_URL = `https://docs.google.com/spreadsheets/d/${SPREADSHEET_ID}/gviz/tq?tqx=out:csv&gid=${GID}`;
-
-    let globalTodos = [];
+let currentCsvText = "";
+let pendingCsvText = "";
+let pendingCount = 0;
+const CONFIRMATION_THRESHOLD = 2;
+const seenStatesMap = new Map();
+let globalTodos = [];
 
     const cycleDays = {
       '2026-09-02': 1,
@@ -1118,106 +1122,101 @@ const SHEET_CSV_URL = `https://docs.google.com/spreadsheets/d/${SPREADSHEET_ID}/
       return upcomingDates;
     }
 
-    async function fetchTodoData() {
-  try {
-    // Bust browser & edge CDN caches
-    const cacheBusterUrl = `${SHEET_CSV_URL}&headers=0&_=${Date.now()}`;
-    const res = await fetch(cacheBusterUrl, { cache: 'no-store' });
-    const text = await res.text();
-    const trimmedText = text.trim();
+    
+  async function fetchTodoData() {
+    try {
+      const cacheBusterUrl = `${SHEET_CSV_URL}&headers=0&_=${Date.now()}`;
+      const res = await fetch(cacheBusterUrl, { cache: 'no-store' });
+      const text = await res.text();
+      const trimmedText = text.trim();
 
-    if (!trimmedText) return;
+      if (!trimmedText) return;
 
-    // --- ANTI-BOUNCING CDN GUARD & CHANGE DETECTION ---
-    let dataHasChanged = false;
+      let dataHasChanged = false;
 
-    if (currentCsvText === "") {
-      // Initial Load
-      currentCsvText = trimmedText;
-      seenStatesMap.set(trimmedText, Date.now());
-      dataHasChanged = true;
-    } else if (trimmedText !== currentCsvText) {
-      const currentTime = Date.now();
-      const isRevert = seenStatesMap.has(trimmedText) && 
-                       (seenStatesMap.get(trimmedText) < seenStatesMap.get(currentCsvText));
+      if (currentCsvText === "") {
+        currentCsvText = trimmedText;
+        seenStatesMap.set(trimmedText, Date.now());
+        dataHasChanged = true;
+      } else if (trimmedText !== currentCsvText) {
+        const currentTime = Date.now();
+        const isRevert = seenStatesMap.has(trimmedText) && 
+                         (seenStatesMap.get(trimmedText) < seenStatesMap.get(currentCsvText));
 
-      if (isRevert) {
-        if (pendingCsvText === trimmedText) {
-          pendingCount++;
-        } else {
-          pendingCsvText = trimmedText;
-          pendingCount = 1;
+        if (isRevert) {
+          if (pendingCsvText === trimmedText) {
+            pendingCount++;
+          } else {
+            pendingCsvText = trimmedText;
+            pendingCount = 1;
+          }
+
+          if (pendingCount < CONFIRMATION_THRESHOLD) {
+            return; 
+          }
         }
 
-        // Wait for consecutive fetches before accepting an intentional revert
-        if (pendingCount < CONFIRMATION_THRESHOLD) {
-          return; 
-        }
+        currentCsvText = trimmedText;
+        seenStatesMap.set(trimmedText, currentTime);
+        pendingCsvText = "";
+        pendingCount = 0;
+        dataHasChanged = true;
+      } else {
+        pendingCsvText = "";
+        pendingCount = 0;
       }
 
-      // Valid new edit accepted
-      currentCsvText = trimmedText;
-      seenStatesMap.set(trimmedText, currentTime);
-      pendingCsvText = "";
-      pendingCount = 0;
-      dataHasChanged = true;
-    } else {
-      pendingCsvText = "";
-      pendingCount = 0;
-    }
+      const syncTime = new Date();
+      const h = String(syncTime.getHours()).padStart(2, '0');
+      const m = String(syncTime.getMinutes()).padStart(2, '0');
+      const s = String(syncTime.getSeconds()).padStart(2, '0');
+      const sheetFooterEl = document.getElementById('sheet-update-footer');
+      if (sheetFooterEl) {
+        sheetFooterEl.textContent = `Last Checked: ${h}:${m}:${s}`;
+        sheetFooterEl.style.color = '#666666';
+      }
 
-    // Update the sync timestamp display
-    const syncTime = new Date();
-    const h = String(syncTime.getHours()).padStart(2, '0');
-    const m = String(syncTime.getMinutes()).padStart(2, '0');
-    const s = String(syncTime.getSeconds()).padStart(2, '0');
-    const sheetFooterEl = document.getElementById('sheet-update-footer');
-    if (sheetFooterEl) {
-      sheetFooterEl.textContent = `Last Checked: ${h}:${m}:${s}`;
-      sheetFooterEl.style.color = '#666666';
-    }
-
-    // Parse and re-render ONLY if data has actually changed
-    if (dataHasChanged) {
-      const lines = trimmedText.split(/\r?\n/);
-      let newTodos = [];
-      
-      for (let i = 0; i < lines.length; i++) {
-        const row = lines[i].trim();
-        if (!row) continue;
-
-        // Clean quotes added by GViz format
-        const cols = row.split(',').map(col => col.replace(/^"|"$/g, '').trim());
+      if (dataHasChanged) {
+        const lines = trimmedText.split(/\r?\n/);
+        let newTodos = [];
         
-        // Skip header row if present
-        if (i === 0 && (cols[0].toLowerCase().includes('date') || cols[0].toLowerCase().includes('日期'))) {
-          continue;
+        for (let i = 0; i < lines.length; i++) {
+          const row = lines[i].trim();
+          if (!row) continue;
+
+          const cols = row.split(',').map(col => col.replace(/^"|"$/g, '').trim());
+          
+          if (i === 0 && (cols[0].toLowerCase().includes('date') || cols[0].toLowerCase().includes('日期'))) {
+            continue;
+          }
+
+          if (cols.length >= 6) {
+            newTodos.push({
+              dateStr: cols[0],
+              day: cols[1],
+              time: cols[4],
+              text: cols.slice(5).join(',')
+            });
+          }
         }
 
-        if (cols.length >= 6) {
-          newTodos.push({
-            dateStr: cols[0],
-            day: cols[1],
-            time: cols[4],
-            text: cols.slice(5).join(',')
-          });
-        }
+        globalTodos = newTodos;
+        renderTable();
       }
-
-      globalTodos = newTodos;
-      renderTable();
-    }
-  } catch (e) {
-    console.error("Failed fetching TO-DOs", e);
-    const sheetFooterEl = document.getElementById('sheet-update-footer');
-    if (sheetFooterEl) {
-      sheetFooterEl.textContent = `Sync Failed! Check console.`;
-      sheetFooterEl.style.color = '#EA0000';
+    } catch (e) {
+      console.error("Failed fetching TO-DOs", e);
+      const sheetFooterEl = document.getElementById('sheet-update-footer');
+      if (sheetFooterEl) {
+        sheetFooterEl.textContent = `Sync Failed! Check console.`;
+        sheetFooterEl.style.color = '#EA0000';
+      }
     }
   }
-}
 
 
+  setInterval(fetchTodoData, 10000);
+  // Initial call on page load
+  fetchTodoData();
 
 
     function injectTodos() {
