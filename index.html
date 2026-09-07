@@ -389,8 +389,15 @@
     </div>
 
     <script>
-    const SHEET_CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vQ8pmhmnpAaM5paBA8N-bURKQkw8Tzoh0TRLCR1-Ax-nLyoCC2JFFkAZ4cKEukDhdedj-ktlSJk-Tse/export?format=csv&gid=1168039585&single=true";
+    const SHEET_CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vQ8pmhmnpAaM5paBA8N-bURKQkw8Tzoh0TRLCR1-Ax-nLyoCC2JFFkAZ4cKEukDhdedj-ktlSJk-Tse/pub?gid=1168039585&single=true&output=csv";
     let globalTodos = [];
+
+    // State trackers to prevent CDN cache bouncing
+    let currentCsvText = "";
+    const seenStatesMap = new Map();
+    let pendingCsvText = "";
+    let pendingCount = 0;
+    const CONFIRMATION_THRESHOLD = 2; // Requires 2 consecutive fetches before accepting an intentional revert
 
     const cycleDays = {
       '2026-09-02': 1,
@@ -1113,11 +1120,49 @@
 
     async function fetchTodoData() {
       try {
-        // Append a timestamp to the URL to bypass Google Sheets caching
         const cacheBusterUrl = SHEET_CSV_URL + "&t=" + new Date().getTime();
         const res = await fetch(cacheBusterUrl);
         const text = await res.text();
-        const lines = text.split(/\r?\n/);
+        const trimmedText = text.trim();
+
+        if (!trimmedText) return;
+
+        // --- ANTI-BOUNCING CDN GUARD ---
+        if (currentCsvText === "") {
+          currentCsvText = trimmedText;
+          seenStatesMap.set(trimmedText, Date.now());
+        } else if (trimmedText !== currentCsvText) {
+          const currentTime = Date.now();
+          const isRevert = seenStatesMap.has(trimmedText) && 
+                           (seenStatesMap.get(trimmedText) < seenStatesMap.get(currentCsvText));
+
+          if (isRevert) {
+            // Stale CDN node response detected!
+            if (pendingCsvText === trimmedText) {
+              pendingCount++;
+            } else {
+              pendingCsvText = trimmedText;
+              pendingCount = 1;
+            }
+
+            // Reject stale responses unless repeated multiple times continuously
+            if (pendingCount < CONFIRMATION_THRESHOLD) {
+              return; 
+            }
+          }
+
+          // State is accepted (either brand new update or confirmed intentional revert)
+          currentCsvText = trimmedText;
+          seenStatesMap.set(trimmedText, currentTime);
+          pendingCsvText = "";
+          pendingCount = 0;
+        } else {
+          pendingCsvText = "";
+          pendingCount = 0;
+        }
+
+        // Parse CSV data
+        const lines = trimmedText.split(/\r?\n/);
         let newTodos = [];
         for (let i = 1; i < lines.length; i++) {
           const row = lines[i].trim();
@@ -1135,7 +1180,7 @@
         }
         globalTodos = newTodos;
 
-        // --- NEW CODE: Update the sync timestamp ---
+        // Update the sync timestamp
         const syncTime = new Date();
         const h = String(syncTime.getHours()).padStart(2, '0');
         const m = String(syncTime.getMinutes()).padStart(2, '0');
@@ -1143,10 +1188,8 @@
         const sheetFooterEl = document.getElementById('sheet-update-footer');
         if (sheetFooterEl) {
           sheetFooterEl.textContent = `Last Updated: ${h}:${m}:${s}`;
-          sheetFooterEl.style.color = '#666666'; // Resets color on successful fetch
+          sheetFooterEl.style.color = '#666666';
         }
-
-        // -------------------------------------------
 
         renderTable();
       } catch (e) {
@@ -1158,7 +1201,6 @@
         }
       }
     }
-
 
     function injectTodos() {
       const scheduleType = document.getElementById('scheduleType').value;
@@ -1178,7 +1220,6 @@
       globalTodos.forEach(todo => {
         if (!todo.text || todo.text === "") return;
 
-        // Only show TO-DO if its date corresponds to the upcoming active cycle day
         if (todo.day && validTodoDates[todo.day] !== todo.dateStr) return;
 
         let targetRowIndex = -1;
@@ -1192,7 +1233,6 @@
             } else if (todoMins >= currentSchedule[currentSchedule.length - 1].end) {
               targetRowIndex = 'after';
             } else {
-              // Find standard block
               for (let i = 0; i < currentSchedule.length; i++) {
                 const p = currentSchedule[i];
                 if (todoMins >= p.start && todoMins < p.end) {
@@ -1247,11 +1287,9 @@
       const hh = String(now.getHours()).padStart(2, '0');
       const min = String(now.getMinutes()).padStart(2, '0');
 
-      // Set document title to format: yyyy_[room name] for PDF saving
       const currentRoomName = document.getElementById('roomTitle').textContent;
       document.title = `${yyyy}_${currentRoomName}`;
 
-      // Set bottom-left text: Last modified (File save time) and Print date
       const lastMod = new Date(document.lastModified);
       const lmY = lastMod.getFullYear();
       const lmMo = String(lastMod.getMonth() + 1).padStart(2, '0');
@@ -1264,7 +1302,6 @@
         footerEl.innerHTML = `Last Modified: ${lmY}${lmMo}${lmD}${lmH}${lmMin} <span class="print-date"></span>`;
       }
 
-
       const roomSelect = document.getElementById('roomSelect');
       document.getElementById('roomTitle').textContent = roomSelect.options[roomSelect.selectedIndex].text;
 
@@ -1274,7 +1311,6 @@
       const scheduleType = document.getElementById('scheduleType').value;
       const currentSchedule = schedules[scheduleType];
 
-      // Fetch the upcoming dates so we can extract mm/dd and day of week
       const upcomingCycleDates = getUpcomingCycleDates();
       const weekdays = ['星期日', '星期一', '星期二', '星期三', '星期四', '星期五', '星期六'];
 
@@ -1289,7 +1325,6 @@
               const dateObj = new Date(y, m - 1, d);
               const weekdayStr = weekdays[dateObj.getDay()];
               
-              // mm月dd 星期x with line break, wrapped in .header-date (hidden in print)
               dateLabel = `<span class="header-date"><br>${m}月${d} ${weekdayStr}</span>`; 
           }
           html += `<th>Day ${day}${dateLabel}</th>`;
