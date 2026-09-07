@@ -1176,33 +1176,68 @@ let globalTodos = [];
         sheetFooterEl.style.color = '#666666';
       }
 
-      if (dataHasChanged) {
-        const lines = trimmedText.split(/\r?\n/);
-        let newTodos = [];
-        
-        for (let i = 0; i < lines.length; i++) {
-          const row = lines[i].trim();
-          if (!row) continue;
-
-          const cols = row.split(',').map(col => col.replace(/^"|"$/g, '').trim());
-          
-          if (i === 0 && (cols[0].toLowerCase().includes('date') || cols[0].toLowerCase().includes('日期'))) {
-            continue;
-          }
-
-          if (cols.length >= 6) {
-            newTodos.push({
-              dateStr: cols[0],
-              day: cols[1],
-              time: cols[4],
-              text: cols.slice(5).join(',')
-            });
+          if (dataHasChanged) {
+      const lines = trimmedText.split(/\r?\n/);
+      let newTodos = [];
+      
+      // Helper parser to handle quotes and commas properly
+      function parseCSVLine(line) {
+        const result = [];
+        let cur = '';
+        let inQuotes = false;
+        for (let i = 0; i < line.length; i++) {
+          const c = line[i];
+          if (c === '"') {
+            inQuotes = !inQuotes;
+          } else if (c === ',' && !inQuotes) {
+            result.push(cur.trim().replace(/^"|"$/g, ''));
+            cur = '';
+          } else {
+            cur += c;
           }
         }
-
-        globalTodos = newTodos;
-        renderTable();
+        result.push(cur.trim().replace(/^"|"$/g, ''));
+        return result;
       }
+
+      for (let i = 0; i < lines.length; i++) {
+        const row = lines[i].trim();
+        if (!row) continue;
+
+        const cols = parseCSVLine(row);
+        
+        // Skip header row
+        if (i === 0 && (cols[0].toLowerCase().includes('date') || cols[0].toLowerCase().includes('日期'))) {
+          continue;
+        }
+
+        if (cols.length >= 6) {
+          // Slice from Column 6 (index 5) onward
+          let textParts = cols.slice(5);
+
+          // Remove empty trailing cells added by GViz empty grid columns
+          while (textParts.length > 0 && textParts[textParts.length - 1] === '') {
+            textParts.pop();
+          }
+
+          const todoText = textParts.join(', ');
+
+          // Skip completely empty rows
+          if (!cols[0] && !todoText) continue;
+
+          newTodos.push({
+            dateStr: cols[0],
+            day: cols[1],
+            time: cols[4],
+            text: todoText
+          });
+        }
+      }
+
+      globalTodos = newTodos;
+      renderTable();
+    }
+
     } catch (e) {
       console.error("Failed fetching TO-DOs", e);
       const sheetFooterEl = document.getElementById('sheet-update-footer');
