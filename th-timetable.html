@@ -1284,7 +1284,7 @@ for(let day = 1; day <= 6; day++) {
     if (upcomingCycleDates[day]) {
         const parts = upcomingCycleDates[day].split('-');
         // Wrap the date in a specific class for print styling
-        dateLabel = `<span class="header-date">(${parts[1]}/${parts[2]}) </span>`; 
+        dateLabel = `<span class="header-date">(${parts[1]}月${parts[2]}) </span>`; 
     }
     html += `<th>${dateLabel}Day ${day}</th>`;
 }
