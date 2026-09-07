@@ -220,7 +220,14 @@
         .print-date {
             display: none; /* Hidden on web view, visible in print */
         }
-
+#sheet-update-footer {
+    position: fixed;
+    bottom: 5px;
+    right: 10px;
+    font-size: 11px;
+    color: #666666;
+    z-index: 100;
+}
 
         @media print {
 		@page {
@@ -233,7 +240,7 @@ body {
 
             /* Stretch the table to maximize A4 page space */
             table {
-                height: 93vh !important; 
+                height: 90vh !important; 
             }
             td {
                 height: auto !important; /* Overrides the fixed 50px height */
@@ -295,13 +302,18 @@ body {
             .time-col {
                 color: #000000 !important; 
             }
+    #sheet-update-footer {
+        display: none !important;
+    }
         }
 
 
     </style>
 </head>
 <body>
-    <div id="footer-text"></div>
+<div id="footer-text"></div>
+<div id="sheet-update-footer"></div>
+
 
     <div class="controls">
         <div class="controls-left">
