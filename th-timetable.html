@@ -226,8 +226,6 @@
       z-index: 40 !important;
     }
 
-
-
     /* Styling for the Before/After and Break rows */
     tr.short-row td,
     tr.break-row td {
@@ -285,9 +283,11 @@
         height: auto !important;
         /* Overrides the fixed 50px height */
       }
-.header-date {
-                display: none !important;
-            }
+
+      .header-date {
+        display: none !important;
+      }
+
       /* Reveal the print date next to the modified date */
       .print-date {
         display: inline !important;
@@ -359,7 +359,6 @@
   <body>
     <div id="footer-text"></div>
     <div id="sheet-update-footer"></div>
-
 
     <div class="controls">
       <div class="controls-left">
@@ -1272,25 +1271,30 @@
       const selectedRoom = roomSelect.value;
       const timetableData = roomData[selectedRoom] || {};
 
-const scheduleType = document.getElementById('scheduleType').value;
-const currentSchedule = schedules[scheduleType];
+      const scheduleType = document.getElementById('scheduleType').value;
+      const currentSchedule = schedules[scheduleType];
 
-// Fetch the upcoming dates so we can extract the mm/dd for the headers
-const upcomingCycleDates = getUpcomingCycleDates();
+      // Fetch the upcoming dates so we can extract mm/dd and day of week
+      const upcomingCycleDates = getUpcomingCycleDates();
+      const weekdays = ['星期日', '星期一', '星期二', '星期三', '星期四', '星期五', '星期六'];
 
-let html = '<thead><tr><th></th>';
-for(let day = 1; day <= 6; day++) {
-    let dateLabel = '';
-    if (upcomingCycleDates[day]) {
-        const parts = upcomingCycleDates[day].split('-');
-        // Wrap the date in a specific class for print styling
-        dateLabel = `<span class="header-date">(${parts[1]}月${parts[2]}) </span>`; 
-    }
-    html += `<th>${dateLabel}Day ${day}</th>`;
-}
-html += '</tr></thead><tbody>';
-
-
+      let html = '<thead><tr><th></th>';
+      for(let day = 1; day <= 6; day++) {
+          let dateLabel = '';
+          if (upcomingCycleDates[day]) {
+              const parts = upcomingCycleDates[day].split('-');
+              const y = parseInt(parts[0], 10);
+              const m = parseInt(parts[1], 10);
+              const d = parseInt(parts[2], 10);
+              const dateObj = new Date(y, m - 1, d);
+              const weekdayStr = weekdays[dateObj.getDay()];
+              
+              // mm月dd 星期x with line break, wrapped in .header-date (hidden in print)
+              dateLabel = `<span class="header-date"><br>${m}月${d} ${weekdayStr}</span>`; 
+          }
+          html += `<th>Day ${day}${dateLabel}</th>`;
+      }
+      html += '</tr></thead><tbody>';
 
       html += `<tr class="short-row"><td class="time-col"></td>`;
       for (let day = 1; day <= 6; day++) {
