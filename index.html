@@ -208,9 +208,37 @@
         tr.short-row td.time-col {
             background-color: #e5e5e5;
         }        
+#footer-text {
+            position: fixed;
+            bottom: 5px;
+            left: 10px;
+            font-size: 11px;
+            color: #666666;
+            z-index: 100;
+        }
+        
+        .print-date {
+            display: none; /* Hidden on web view, visible in print */
+        }
 
-	        /* --- ADD THIS TO THE BOTTOM OF YOUR <style> TAG --- */
-        @media print {
+
+        @media print {@page {
+                size: A4 portrait;
+                margin: 10mm;
+            }
+            
+            /* Stretch the table to maximize A4 page space */
+            table {
+                height: 93vh !important; 
+            }
+            td {
+                height: auto !important; /* Overrides the fixed 50px height */
+            }
+
+            /* Reveal the print date next to the modified date */
+            .print-date {
+                display: inline !important;
+            }
             /* Force background colors to print for the color PDF */
             * {
                 -webkit-print-color-adjust: exact !important;
@@ -269,6 +297,7 @@
     </style>
 </head>
 <body>
+    <div id="footer-text"></div>
 
     <div class="controls">
         <div class="controls-left">
@@ -514,6 +543,23 @@
         }
 
         function renderTable() {
+            const now = new Date();
+            const yyyy = now.getFullYear();
+            const mo = String(now.getMonth() + 1).padStart(2, '0');
+            const dd = String(now.getDate()).padStart(2, '0');
+            const hh = String(now.getHours()).padStart(2, '0');
+            const min = String(now.getMinutes()).padStart(2, '0');
+
+            // Set document title to format: yyyy_[room name] for PDF saving
+            const currentRoomName = document.getElementById('roomTitle').textContent;
+            document.title = `${yyyy}_${currentRoomName}`;
+
+            // Set bottom-left text: Last modified and Print date
+            const footerEl = document.getElementById('footer-text');
+            if (footerEl) {
+                footerEl.innerHTML = `Last Modified: ${yyyy}${mo}${dd}${hh}${min} <span class="print-date"> | Printed: ${yyyy}-${mo}-${dd}</span>`;
+            }
+
             const roomSelect = document.getElementById('roomSelect');
             document.getElementById('roomTitle').textContent = roomSelect.options[roomSelect.selectedIndex].text;
             
