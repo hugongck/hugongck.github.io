@@ -1141,8 +1141,10 @@
         const s = String(syncTime.getSeconds()).padStart(2, '0');
         const sheetFooterEl = document.getElementById('sheet-update-footer');
         if (sheetFooterEl) {
-          sheetFooterEl.textContent = `Sheet Synced: ${h}:${m}:${s}`;
+          sheetFooterEl.textContent = `Last Updated: ${h}:${m}:${s}`;
+          sheetFooterEl.style.color = '#666666'; // Resets color on successful fetch
         }
+
         // -------------------------------------------
 
         renderTable();
@@ -1248,11 +1250,19 @@
       const currentRoomName = document.getElementById('roomTitle').textContent;
       document.title = `${yyyy}_${currentRoomName}`;
 
-      // Set bottom-left text: Last modified and Print date
+      // Set bottom-left text: Last modified (File save time) and Print date
+      const lastMod = new Date(document.lastModified);
+      const lmY = lastMod.getFullYear();
+      const lmMo = String(lastMod.getMonth() + 1).padStart(2, '0');
+      const lmD = String(lastMod.getDate()).padStart(2, '0');
+      const lmH = String(lastMod.getHours()).padStart(2, '0');
+      const lmMin = String(lastMod.getMinutes()).padStart(2, '0');
+
       const footerEl = document.getElementById('footer-text');
       if (footerEl) {
-        footerEl.innerHTML = `Last Modified: ${yyyy}${mo}${dd}${hh}${min} <span class="print-date"></span>`;
+        footerEl.innerHTML = `Last Modified: ${lmY}${lmMo}${lmD}${lmH}${lmMin} <span class="print-date"></span>`;
       }
+
 
       const roomSelect = document.getElementById('roomSelect');
       document.getElementById('roomTitle').textContent = roomSelect.options[roomSelect.selectedIndex].text;
