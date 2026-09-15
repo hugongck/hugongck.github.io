@@ -1121,8 +1121,12 @@
 
     async function fetchTodoData() {
       try {
-        const cacheBusterUrl = `${SHEET_CSV_URL}&headers=0&_=${Date.now()}`;
-        const res = await fetch(cacheBusterUrl, { cache: 'no-store' });
+const cacheBusterUrl = `${SHEET_CSV_URL}&headers=0&_=${Date.now()}`;
+// Wrap the Google URL in encodeURIComponent and append it to the proxy URL
+const proxyUrl = 'https://corsproxy.io/?' + encodeURIComponent(cacheBusterUrl);
+
+const res = await fetch(proxyUrl, { cache: 'no-store' });
+
         const text = await res.text();
         const trimmedText = text.trim();
 
