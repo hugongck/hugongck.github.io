@@ -42,17 +42,17 @@
     #table-wrapper {
       position: relative;
       width: 100%;
-      overflow-x: auto; /* Enables horizontal scrolling on mobile */
-      -webkit-overflow-scrolling: touch; /* Smooth scrolling on iOS */
+      overflow-x: auto;
+      -webkit-overflow-scrolling: touch; 
     }
 
     table {
       width: 100%;
-      min-width: 750px; /* Prevents the whole table from squishing on mobile */
+      min-width: 750px; 
       border-collapse: collapse;
       background-color: white;
       box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
-      table-layout: fixed; /* Ensures tight width control */
+      table-layout: fixed; 
     }
 
     th,
@@ -62,7 +62,7 @@
       vertical-align: middle;
       transition: opacity 0.2s ease, filter 0.2s ease;
       word-wrap: break-word;
-      min-width: 70px; /* Minimum width for standard day columns */
+      min-width: 70px; 
     }
 
     th {
@@ -83,7 +83,7 @@
     th:first-child,
     td.time-col {
       width: 90px;
-      min-width: 90px; /* Prevents time column from shrinking */
+      min-width: 90px;
       background-color: #f2f2f2;
       font-weight: bold;
       color: #000;
@@ -94,7 +94,7 @@
     th.half-width,
     td.half-width {
       width: 50px !important;
-      min-width: 50px !important; /* Prevents half-width columns from shrinking */
+      min-width: 50px !important; 
       padding: 1px;
     }
 
@@ -198,7 +198,7 @@
     #time-indicator {
       position: absolute;
       width: 100%;
-      min-width: 750px; /* Matches table min-width */
+      min-width: 750px; 
       height: 1px;
       background-color: #EA0000;
       z-index: 50;
@@ -235,7 +235,6 @@
       word-wrap: break-word;
     }
 
-    /* Styling for the Before/After and Break rows */
     tr.short-row td,
     tr.break-row td {
       height: 34px !important;
@@ -275,19 +274,23 @@
     /* Mobile specifically */
     @media (max-width: 768px) {
       .controls {
-        flex-direction: column;
-        align-items: flex-start;
-        gap: 10px;
+        flex-direction: row;      /* Keep row direction */
+        flex-wrap: wrap;          /* Allow items to wrap to the next line */
+        align-items: center;
       }
-      .status {
-        font-size: 20px;
-      }
-      .text-red {
-        font-size: 24px;
+      .controls-left {
+        width: 100%;              /* Forces the dropdowns to take the full first line */
+        margin-bottom: 8px;
       }
       #roomTitle {
-        font-size: 24px;
-        align-self: flex-start;
+        font-size: 20px;          /* Adjusted slightly to guarantee fit */
+        margin-top: 0;
+      }
+      .status {
+        font-size: 15px;          /* Shrunk slightly to fit on the same line */
+      }
+      .text-red {
+        font-size: 18px;
       }
     }
 
@@ -522,14 +525,13 @@
       return 'bg-other';
     }
 
-    // Function to return 8 literal calendar dates starting from today
     function getUpcomingDates() {
       const now = new Date();
       const dates = [];
       let d = new Date(now);
       d.setHours(0, 0, 0, 0);
 
-      for (let i = 0; i < 8; i++) { // 8 day columns
+      for (let i = 0; i < 8; i++) { 
         const dStr = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
         const cDay = cycleDays[dStr];
         const isWeekend = d.getDay() === 0 || d.getDay() === 6;
@@ -545,7 +547,6 @@
       return dates;
     }
 
-    // Helper function to check if a date has a holiday to-do item
     function isHolidayDate(dateObj, dStr) {
       const m = dateObj.getMonth() + 1;
       const d = dateObj.getDate();
@@ -956,7 +957,6 @@
       }
       statusEl.innerHTML = statusHtml;
 
-      // Highlight column 0 (Today)
       const headerCell = document.querySelector(`th:nth-child(2)`);
       if (headerCell) headerCell.classList.add('highlight-col');
 
