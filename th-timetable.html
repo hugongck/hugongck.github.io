@@ -83,7 +83,7 @@
     /* Half width styling for Sat/Sun */
     th.half-width,
     td.half-width {
-      width: 60px !important;
+      width: 50px !important;
       padding: 1px;
     }
 
@@ -490,14 +490,14 @@
       return 'bg-other';
     }
 
-    // New Function to always return next 7 literal calendar dates starting from today
+    // Function to return 8 literal calendar dates starting from today
     function getUpcomingDates() {
       const now = new Date();
       const dates = [];
       let d = new Date(now);
       d.setHours(0, 0, 0, 0);
 
-      for (let i = 0; i < 7; i++) {
+      for (let i = 0; i < 8; i++) { // 8 day columns
         const dStr = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
         const cDay = cycleDays[dStr];
         const isWeekend = d.getDay() === 0 || d.getDay() === 6;
@@ -511,6 +511,23 @@
         d.setDate(d.getDate() + 1);
       }
       return dates;
+    }
+
+    // Helper function to check if a date has a holiday to-do item
+    function isHolidayDate(dateObj, dStr) {
+      const m = dateObj.getMonth() + 1;
+      const d = dateObj.getDate();
+      const dateMatch1 = `${m}月${d}`;
+      const dateMatch2 = `${m}月${d}日`;
+      const dateMatch3 = `${m}/${d}`;
+
+      return globalTodos.some(todo => {
+        if (!todo.text) return false;
+        const tDate = todo.dateStr ? todo.dateStr.trim() : '';
+        const isSameDate = (tDate === dateMatch1 || tDate === dateMatch2 || tDate === dateMatch3 || tDate === dStr);
+        if (!isSameDate) return false;
+        return todo.text.includes('放假') || todo.text.includes('假期');
+      });
     }
 
     async function fetchTodoData() {
@@ -624,8 +641,14 @@
         let targetColIndex = -1;
         for (let i = 0; i < upcomingDates.length; i++) {
             const dObj = upcomingDates[i].dateObj;
-            const dateMatch = `${dObj.getMonth() + 1}月${dObj.getDate()}`;
-            if (todo.dateStr === dateMatch) {
+            const m = dObj.getMonth() + 1;
+            const d = dObj.getDate();
+            const dateMatch1 = `${m}月${d}`;
+            const dateMatch2 = `${m}月${d}日`;
+            const dateMatch3 = `${m}/${d}`;
+            const tDate = todo.dateStr ? todo.dateStr.trim() : '';
+
+            if (tDate === dateMatch1 || tDate === dateMatch2 || tDate === dateMatch3 || tDate === upcomingDates[i].dateStr) {
                 targetColIndex = i;
                 break;
             }
@@ -726,20 +749,29 @@
           let headerText = `<span style="font-size:14px">${m}月${day}<br>(${weekdayStr})</span>`;
           if (d.cycleDay) headerText += `<br>Day ${d.cycleDay}`;
 
-          const hwClass = d.isWeekend ? ' half-width bg-weekend-holiday' : '';
-          html += `<th class="${hwClass}">${headerText}</th>`;
+          const isHoliday = isHolidayDate(d.dateObj, d.dateStr);
+          let classes = [];
+          if (d.isWeekend) classes.push('half-width');
+          if (isHoliday) classes.push('bg-weekend-holiday');
+
+          const classStr = classes.join(' ');
+          html += `<th class="${classStr}">${headerText}</th>`;
       });
       html += '</tr></thead><tbody>';
 
       // Short row before
       html += `<tr class="short-row"><td class="time-col"></td>`;
       upcomingDates.forEach(d => {
-        const hwClass = d.isWeekend ? ' half-width bg-weekend-holiday' : '';
-        html += `<td class="${hwClass}" data-col="${d.colIndex}" data-periods="before"></td>`;
+        const isHoliday = isHolidayDate(d.dateObj, d.dateStr);
+        let classes = [];
+        if (d.isWeekend) classes.push('half-width');
+        if (isHoliday) classes.push('bg-weekend-holiday');
+        const classStr = classes.join(' ');
+        html += `<td class="${classStr}" data-col="${d.colIndex}" data-periods="before"></td>`;
       });
       html += `</tr>`;
 
-      let skipCount = [0,0,0,0,0,0,0];
+      let skipCount = [0, 0, 0, 0, 0, 0, 0, 0];
 
       currentSchedule.forEach((period, index) => {
         const timeStr = `${formatMinutes(period.start)} - ${formatMinutes(period.end)}`;
@@ -779,8 +811,9 @@
             }
           }
 
-          if (!d.cycleDay || d.isWeekend) {
-              bgClass = 'bg-weekend-holiday';
+          const isHoliday = isHolidayDate(d.dateObj, d.dateStr);
+          if (isHoliday) {
+            bgClass = 'bg-weekend-holiday';
           }
 
           if (rowspan > 1) {
@@ -791,10 +824,12 @@
           for (let r = 0; r < rowspan; r++) { periodsArray.push(index + r); }
           let periodsAttr = periodsArray.join(' ');
           
-          const hwClass = d.isWeekend ? ' half-width' : '';
-          const finalClass = `${bgClass}${hwClass}`;
+          let classes = [];
+          if (bgClass) classes.push(bgClass);
+          if (d.isWeekend) classes.push('half-width');
+          const classStr = classes.join(' ');
 
-          html += `<td data-col="${i}" data-periods="${periodsAttr}" rowspan="${rowspan}" class="${finalClass.trim()}">${cellContent}</td>`;
+          html += `<td data-col="${i}" data-periods="${periodsAttr}" rowspan="${rowspan}" class="${classStr}">${cellContent}</td>`;
         });
         html += '</tr>';
       });
@@ -802,8 +837,12 @@
       // Short row after
       html += `<tr class="short-row"><td class="time-col"></td>`;
       upcomingDates.forEach(d => {
-        const hwClass = d.isWeekend ? ' half-width bg-weekend-holiday' : '';
-        html += `<td class="${hwClass}" data-col="${d.colIndex}" data-periods="after"></td>`;
+        const isHoliday = isHolidayDate(d.dateObj, d.dateStr);
+        let classes = [];
+        if (d.isWeekend) classes.push('half-width');
+        if (isHoliday) classes.push('bg-weekend-holiday');
+        const classStr = classes.join(' ');
+        html += `<td class="${classStr}" data-col="${d.colIndex}" data-periods="after"></td>`;
       });
       html += `</tr>`;
       html += '</tbody>';
@@ -885,7 +924,7 @@
       }
       statusEl.innerHTML = statusHtml;
 
-      // Because Today is universally mapped to colIndex 0, simply highlight 2nd child in tables:
+      // Highlight column 0 (Today)
       const headerCell = document.querySelector(`th:nth-child(2)`);
       if (headerCell) headerCell.classList.add('highlight-col');
 
