@@ -90,11 +90,11 @@
       padding: 4px;
     }
 
-    /* Half width styling for Sat/Sun */
+    /* Extended width styling for Sat/Sun to allow single-line dates */
     th.half-width,
     td.half-width {
-      width: 50px !important;
-      min-width: 50px !important; 
+      width: 75px !important;
+      min-width: 75px !important; 
       padding: 1px;
     }
 
@@ -1134,7 +1134,13 @@
         const startTime = formatMinutes(item.start);
 
         if (pName === 'Lunch') {
-          return { code: 'L', label: 'Lunch', time: startTime };
+          const code = isSummer ? 'Ls' : 'L';
+          return { code: code, label: 'Lunch', time: startTime };
+        }
+
+        if (pName === '小息' || pName === 'Recess') {
+          const code = isSummer ? 'Rs' : 'R';
+          return { code: code, label: '小息', time: startTime };
         }
 
         const match = pName.match(/^P(\d+)$/i);
@@ -1174,9 +1180,9 @@
       const periodDetails = getPeriodDetails(firstPeriod, scheduleType);
 
       document.getElementById('modalDate').value = dateStr;
-      document.getElementById('modalTime').value = periodDetails.label; // Displays clean label (No [xx])
-      document.getElementById('modalTime').dataset.code = periodDetails.code; // Store period code
-      document.getElementById('modalTime').dataset.time = periodDetails.time; // Store start time
+      document.getElementById('modalTime').value = periodDetails.label; 
+      document.getElementById('modalTime').dataset.code = periodDetails.code; 
+      document.getElementById('modalTime').dataset.time = periodDetails.time; 
       document.getElementById('modalTask').value = '';
       document.getElementById('modalStatus').innerText = '';
       
@@ -1215,17 +1221,17 @@
 
       // 2. BACKGROUND SUBMISSION: Submit to Google Apps Script asynchronously
       document.getElementById('formDate').value = dateVal;
-      document.getElementById('formPeriod').value = periodCode; // Period code sent to Sheet
+      document.getElementById('formPeriod').value = periodCode; 
       document.getElementById('formTime').value = timeVal;
       document.getElementById('formTask').value = taskVal;
 
       document.getElementById('gasForm').submit();
 
-      // 3. Smoothly close modal after 500ms
+      // 3. Smoothly close modal after 2000ms (2 Seconds)
       setTimeout(() => {
         document.getElementById('todoModal').style.display = 'none';
         document.getElementById('modalAddBtn').disabled = false;
-      }, 500);
+      }, 2000);
     };
 
     /* === PRE-EXISTING EVENT LISTENERS & INITIATIONS === */
