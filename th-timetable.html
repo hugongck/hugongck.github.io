@@ -352,20 +352,20 @@
     /* Mobile specifically */
     @media (max-width: 768px) {
       .controls {
-        flex-direction: row;      /* Keep row direction */
-        flex-wrap: wrap;          /* Allow items to wrap to the next line */
+        flex-direction: row;      
+        flex-wrap: wrap;          
         align-items: center;
       }
       .controls-left {
-        width: 100%;              /* Forces the dropdowns to take the full first line */
+        width: 100%;              
         margin-bottom: 8px;
       }
       #roomTitle {
-        font-size: 20px;          /* Adjusted slightly to guarantee fit */
+        font-size: 20px;          
         margin-top: 0;
       }
       .status {
-        font-size: 15px;          /* Shrunk slightly to fit on the same line */
+        font-size: 15px;          
       }
       .text-red {
         font-size: 18px;
@@ -491,12 +491,13 @@
       <table id="timetable"></table>
     </div>
 
-    <!-- Hidden iFrame to handle form submission securely and avoid CORS issues -->
+    <!-- Hidden iFrame to handle background submission -->
     <iframe name="hidden_iframe" id="hidden_iframe" style="display:none;"></iframe>
     
-    <!-- Hidden form that actually sends the data to your Google Apps Script -->
+    <!-- Hidden form that posts to Google Apps Script -->
     <form id="gasForm" action="https://script.google.com/a/macros/tanghin.edu.hk/s/AKfycbzQ0p8IOx6SybP0M2vyHh3UGYbeOMavZgw4VyhFHqC7aVKp4tIZj9lJaUWPigQeYlYcdA/exec" method="POST" target="hidden_iframe" style="display:none;">
       <input type="text" name="date" id="formDate">
+      <input type="text" name="period" id="formPeriod">
       <input type="text" name="time" id="formTime">
       <input type="text" name="task" id="formTask">
     </form>
@@ -533,6 +534,15 @@
     const CONFIRMATION_THRESHOLD = 2;
     const seenStatesMap = new Map();
     let globalTodos = [];
+
+    const periodToTimeMap = {
+      "0": "08:20", "1": "08:40", "2": "09:20", "3": "10:00", 
+      "4": "11:00", "5": "11:40", "6": "12:20", "7": "14:15", "8": "14:55",
+      "L": "13:30", "A": "15:40",
+      "0s": "08:00", "1s": "08:15", "2s": "08:50", "3s": "09:25", 
+      "4s": "10:15", "5s": "10:50", "6s": "11:25", "7s": "12:15", "8s": "12:50",
+      "As": "13:25"
+    };
 
     const cycleDays = {
       '2026-09-02': 1, '2026-09-03': 2, '2026-09-04': 3, '2026-09-07': 4, '2026-09-08': 5,
@@ -1107,7 +1117,45 @@
       }
     }
 
-    /* === NEW DOUBLE CLICK EVENT & MODAL LOGIC === */
+    // Helper to calculate exact Period Code (0, A, L, 0s, 1s...) and label for Modal
+    function getPeriodDetails(firstPeriod, scheduleType) {
+      const isSummer = (scheduleType === 'summer');
+
+      if (firstPeriod === 'before') {
+        const code = isSummer ? '0s' : '0';
+        return { code: code, label: `Before School [${code}]` };
+      }
+      if (firstPeriod === 'after') {
+        const code = isSummer ? 'As' : 'A';
+        return { code: code, label: `After School [${code}]` };
+      }
+
+      const pIndex = parseInt(firstPeriod, 10);
+      const currentSchedule = schedules[scheduleType] || schedules['normal'];
+      
+      if (currentSchedule && currentSchedule[pIndex]) {
+        const item = currentSchedule[pIndex];
+        const pName = item.name;
+
+        if (pName === 'Lunch') {
+          return { code: 'L', label: 'Lunch [L]' };
+        }
+
+        const match = pName.match(/^P(\d+)$/i);
+        if (match) {
+          const num = match[1];
+          const code = isSummer ? (num + 's') : num;
+          return { code: code, label: `${pName} [${code}]` };
+        }
+
+        const fallbackCode = isSummer ? (pIndex + 's') : String(pIndex);
+        return { code: fallbackCode, label: `${pName} [${fallbackCode}]` };
+      }
+
+      return { code: '', label: '' };
+    }
+
+    /* === DOUBLE CLICK EVENT & MODAL LOGIC === */
     document.getElementById('timetable').addEventListener('dblclick', function(e) {
       const td = e.target.closest('td');
       if (!td || td.classList.contains('time-col')) return; 
@@ -1121,75 +1169,65 @@
       if (!targetDateObj) return;
       const dateStr = targetDateObj.dateStr; 
 
-      let timeStr = "";
+      const scheduleType = document.getElementById('scheduleType').value;
+      let firstPeriod = 'before';
       if (periodsAttr) {
-        const periods = periodsAttr.split(' ');
-        const firstPeriod = periods[0];
-        
-        if (firstPeriod === 'before') {
-          timeStr = "Before School";
-        } else if (firstPeriod === 'after') {
-          timeStr = "After School";
-        } else {
-          const pIndex = parseInt(firstPeriod, 10);
-          const scheduleType = document.getElementById('scheduleType').value;
-          const currentSchedule = schedules[scheduleType];
-          if (currentSchedule && currentSchedule[pIndex]) {
-            timeStr = currentSchedule[pIndex].name;
-          }
-        }
+        firstPeriod = periodsAttr.split(' ')[0];
       }
 
+      const periodDetails = getPeriodDetails(firstPeriod, scheduleType);
+
       document.getElementById('modalDate').value = dateStr;
-      document.getElementById('modalTime').value = timeStr;
+      document.getElementById('modalTime').value = periodDetails.label;
+      document.getElementById('modalTime').dataset.code = periodDetails.code;
       document.getElementById('modalTask').value = '';
       document.getElementById('modalStatus').innerText = '';
       
       document.getElementById('todoModal').style.display = 'flex';
+      setTimeout(() => document.getElementById('modalTask').focus(), 100);
     });
 
     document.getElementById('modalCancelBtn').onclick = function() {
       document.getElementById('todoModal').style.display = 'none';
     };
 
-    let isSubmitting = false;
-
-    // Detect when the hidden iframe finishes loading (which happens after the form is submitted)
-    document.getElementById('hidden_iframe').onload = function() {
-      if (isSubmitting) {
-        document.getElementById('modalStatus').innerText = 'Task added successfully!';
-        document.getElementById('modalStatus').style.color = '#01B468';
-        isSubmitting = false;
-
-        setTimeout(() => {
-          document.getElementById('todoModal').style.display = 'none';
-          document.getElementById('modalAddBtn').disabled = false;
-          fetchTodoData(); // Refresh the table
-        }, 1200);
-      }
-    };
-
     // Triggered when user clicks "Add Task"
     document.getElementById('modalAddBtn').onclick = function() {
       const taskVal = document.getElementById('modalTask').value;
+      const dateVal = document.getElementById('modalDate').value;
+      const periodCode = document.getElementById('modalTime').dataset.code || '';
 
       if (!taskVal.trim()) {
         alert("Please enter a to-do task.");
         return;
       }
 
-      document.getElementById('modalStatus').innerText = 'Sending...';
-      document.getElementById('modalStatus').style.color = '#f57f17';
+      document.getElementById('modalStatus').innerText = 'Task added!';
+      document.getElementById('modalStatus').style.color = '#01B468';
       document.getElementById('modalAddBtn').disabled = true;
-      isSubmitting = true;
 
-      // Transfer values to the hidden HTML form
-      document.getElementById('formDate').value = document.getElementById('modalDate').value;
-      document.getElementById('formTime').value = document.getElementById('modalTime').value;
-      document.getElementById('formTask').value = document.getElementById('modalTask').value;
+      // 1. INSTANT LOCAL UPDATE: Render new task on webpage right away
+      const approxTime = periodToTimeMap[periodCode] || "23:59";
+      globalTodos.push({
+        dateStr: dateVal,
+        time: approxTime,
+        text: taskVal
+      });
+      renderTable(); 
 
-      // Submit the hidden form targeting the iframe
+      // 2. BACKGROUND SUBMISSION: Submit to Google Apps Script asynchronously
+      document.getElementById('formDate').value = dateVal;
+      document.getElementById('formPeriod').value = periodCode;
+      document.getElementById('formTime').value = approxTime;
+      document.getElementById('formTask').value = taskVal;
+
       document.getElementById('gasForm').submit();
+
+      // 3. Smoothly close modal after 600ms
+      setTimeout(() => {
+        document.getElementById('todoModal').style.display = 'none';
+        document.getElementById('modalAddBtn').disabled = false;
+      }, 600);
     };
 
     /* === PRE-EXISTING EVENT LISTENERS & INITIATIONS === */
