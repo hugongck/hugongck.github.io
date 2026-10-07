@@ -153,7 +153,6 @@
       color: #888888;
     }
 
-    /* Light red border for the entire active column */
     .highlight-col {
       border-left: 5px solid #000 !important;
       border-right: 5px solid #000 !important;
@@ -167,7 +166,6 @@
       border-bottom: 5px solid #000 !important;
     }
 
-    /* Elevate the active cell above surrounding rowspan cells */
     td.highlight-cell {
       z-index: 10 !important;
     }
@@ -492,6 +490,16 @@
       <div id="time-indicator"></div>
       <table id="timetable"></table>
     </div>
+
+    <!-- Hidden iFrame to handle form submission securely and avoid CORS issues -->
+    <iframe name="hidden_iframe" id="hidden_iframe" style="display:none;"></iframe>
+    
+    <!-- Hidden form that actually sends the data to your Google Apps Script -->
+    <form id="gasForm" action="https://script.google.com/a/macros/tanghin.edu.hk/s/AKfycbzQ0p8IOx6SybP0M2vyHh3UGYbeOMavZgw4VyhFHqC7aVKp4tIZj9lJaUWPigQeYlYcdA/exec" method="POST" target="hidden_iframe" style="display:none;">
+      <input type="text" name="date" id="formDate">
+      <input type="text" name="time" id="formTime">
+      <input type="text" name="task" id="formTask">
+    </form>
 
     <!-- Modal for Adding To-Do -->
     <div id="todoModal" class="modal">
@@ -1108,13 +1116,11 @@
       const periodsAttr = td.getAttribute('data-periods');
       if (colIndex === null) return;
 
-      // Extract the Date
       const upcomingDates = getUpcomingDates();
       const targetDateObj = upcomingDates[colIndex];
       if (!targetDateObj) return;
-      const dateStr = targetDateObj.dateStr; // e.g., "2026-10-07"
+      const dateStr = targetDateObj.dateStr; 
 
-      // Extract the Period/Time
       let timeStr = "";
       if (periodsAttr) {
         const periods = periodsAttr.split(' ');
@@ -1134,25 +1140,37 @@
         }
       }
 
-      // Populate Modal Fields
       document.getElementById('modalDate').value = dateStr;
       document.getElementById('modalTime').value = timeStr;
       document.getElementById('modalTask').value = '';
       document.getElementById('modalStatus').innerText = '';
       
-      // Show Modal
       document.getElementById('todoModal').style.display = 'flex';
     });
 
-    // Close Modal Button
     document.getElementById('modalCancelBtn').onclick = function() {
       document.getElementById('todoModal').style.display = 'none';
     };
 
-    // Add Task to Google Sheets Button
+    let isSubmitting = false;
+
+    // Detect when the hidden iframe finishes loading (which happens after the form is submitted)
+    document.getElementById('hidden_iframe').onload = function() {
+      if (isSubmitting) {
+        document.getElementById('modalStatus').innerText = 'Task added successfully!';
+        document.getElementById('modalStatus').style.color = '#01B468';
+        isSubmitting = false;
+
+        setTimeout(() => {
+          document.getElementById('todoModal').style.display = 'none';
+          document.getElementById('modalAddBtn').disabled = false;
+          fetchTodoData(); // Refresh the table
+        }, 1200);
+      }
+    };
+
+    // Triggered when user clicks "Add Task"
     document.getElementById('modalAddBtn').onclick = function() {
-      const dateVal = document.getElementById('modalDate').value;
-      const timeVal = document.getElementById('modalTime').value;
       const taskVal = document.getElementById('modalTask').value;
 
       if (!taskVal.trim()) {
@@ -1163,37 +1181,15 @@
       document.getElementById('modalStatus').innerText = 'Sending...';
       document.getElementById('modalStatus').style.color = '#f57f17';
       document.getElementById('modalAddBtn').disabled = true;
+      isSubmitting = true;
 
-      const scriptURL = "https://script.google.com/a/macros/tanghin.edu.hk/s/AKfycbzQ0p8IOx6SybP0M2vyHh3UGYbeOMavZgw4VyhFHqC7aVKp4tIZj9lJaUWPigQeYlYcdA/exec";
-      
-      // Format as POST body parameters to match typical Google Apps Script parameters
-      const formParams = new URLSearchParams();
-      formParams.append('date', dateVal);
-      formParams.append('time', timeVal);
-      formParams.append('task', taskVal);
+      // Transfer values to the hidden HTML form
+      document.getElementById('formDate').value = document.getElementById('modalDate').value;
+      document.getElementById('formTime').value = document.getElementById('modalTime').value;
+      document.getElementById('formTask').value = document.getElementById('modalTask').value;
 
-      fetch(scriptURL, {
-        method: 'POST',
-        mode: 'no-cors', // Needed to POST to Google Apps Script without strict CORS restrictions
-        headers: {
-          'Content-Type': 'application/x-www-form-urlencoded'
-        },
-        body: formParams.toString()
-      }).then(() => {
-        document.getElementById('modalStatus').innerText = 'Task added successfully!';
-        document.getElementById('modalStatus').style.color = '#01B468';
-        setTimeout(() => {
-          document.getElementById('todoModal').style.display = 'none';
-          document.getElementById('modalAddBtn').disabled = false;
-          // Optionally trigger a manual fetch right away so it renders faster locally
-          fetchTodoData();
-        }, 1200);
-      }).catch(err => {
-        console.error('Error adding to-do', err);
-        document.getElementById('modalStatus').innerText = 'Error adding task.';
-        document.getElementById('modalStatus').style.color = '#EA0000';
-        document.getElementById('modalAddBtn').disabled = false;
-      });
+      // Submit the hidden form targeting the iframe
+      document.getElementById('gasForm').submit();
     };
 
     /* === PRE-EXISTING EVENT LISTENERS & INITIATIONS === */
@@ -1201,7 +1197,7 @@
       const classEl = e.target.closest('.class-text');
       const teacherEl = e.target.closest('.teacher-text');
       const isControl = e.target.closest('.controls');
-      const isModal = e.target.closest('.modal-content'); // Allow clicking inside modal 
+      const isModal = e.target.closest('.modal-content'); 
 
       if (classEl && !isModal) {
         const val = classEl.textContent.trim().toLowerCase();
