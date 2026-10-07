@@ -271,6 +271,86 @@
       z-index: 100;
     }
 
+    /* Modal Styling */
+    .modal {
+      display: none;
+      position: fixed;
+      z-index: 1000;
+      left: 0;
+      top: 0;
+      width: 100%;
+      height: 100%;
+      background-color: rgba(0, 0, 0, 0.5);
+      justify-content: center;
+      align-items: center;
+    }
+
+    .modal-content {
+      background-color: #fff;
+      padding: 20px 25px;
+      border-radius: 8px;
+      width: 320px;
+      box-shadow: 0 4px 10px rgba(0,0,0,0.2);
+    }
+
+    .modal-content h3 {
+      margin-top: 0;
+      font-size: 20px;
+      color: #333;
+    }
+
+    .modal-content label {
+      display: block;
+      font-size: 14px;
+      font-weight: bold;
+      margin-bottom: 5px;
+      color: #555;
+    }
+
+    .modal-content input {
+      width: 100%;
+      box-sizing: border-box;
+      padding: 8px;
+      margin-bottom: 15px;
+      border: 1px solid #ccc;
+      border-radius: 4px;
+    }
+
+    .modal-content input[readonly] {
+      background-color: #f5f5f5;
+    }
+
+    .modal-content .buttons {
+      display: flex;
+      justify-content: flex-end;
+      gap: 10px;
+    }
+
+    .modal-content button {
+      padding: 8px 16px;
+      cursor: pointer;
+      border: none;
+      border-radius: 4px;
+      font-weight: bold;
+    }
+
+    #modalAddBtn {
+      background-color: #01B468;
+      color: white;
+    }
+    #modalCancelBtn {
+      background-color: #e5e5e5;
+      color: #333;
+    }
+    #modalStatus {
+      display: block;
+      margin-top: 10px;
+      font-size: 12px;
+      font-weight: bold;
+      color: #01B468;
+      text-align: right;
+    }
+
     /* Mobile specifically */
     @media (max-width: 768px) {
       .controls {
@@ -411,6 +491,27 @@
     <div id="table-wrapper">
       <div id="time-indicator"></div>
       <table id="timetable"></table>
+    </div>
+
+    <!-- Modal for Adding To-Do -->
+    <div id="todoModal" class="modal">
+      <div class="modal-content">
+        <h3>Add New To-Do</h3>
+        <label>Date</label>
+        <input type="text" id="modalDate" readonly>
+        
+        <label>Time / Period</label>
+        <input type="text" id="modalTime" readonly>
+        
+        <label>To-Do Task</label>
+        <input type="text" id="modalTask" placeholder="Enter your task here...">
+        
+        <div class="buttons">
+          <button id="modalCancelBtn">Cancel</button>
+          <button id="modalAddBtn">Add Task</button>
+        </div>
+        <span id="modalStatus"></span>
+      </div>
     </div>
 
     <script>
@@ -998,20 +1099,119 @@
       }
     }
 
+    /* === NEW DOUBLE CLICK EVENT & MODAL LOGIC === */
+    document.getElementById('timetable').addEventListener('dblclick', function(e) {
+      const td = e.target.closest('td');
+      if (!td || td.classList.contains('time-col')) return; 
+
+      const colIndex = td.getAttribute('data-col');
+      const periodsAttr = td.getAttribute('data-periods');
+      if (colIndex === null) return;
+
+      // Extract the Date
+      const upcomingDates = getUpcomingDates();
+      const targetDateObj = upcomingDates[colIndex];
+      if (!targetDateObj) return;
+      const dateStr = targetDateObj.dateStr; // e.g., "2026-10-07"
+
+      // Extract the Period/Time
+      let timeStr = "";
+      if (periodsAttr) {
+        const periods = periodsAttr.split(' ');
+        const firstPeriod = periods[0];
+        
+        if (firstPeriod === 'before') {
+          timeStr = "Before School";
+        } else if (firstPeriod === 'after') {
+          timeStr = "After School";
+        } else {
+          const pIndex = parseInt(firstPeriod, 10);
+          const scheduleType = document.getElementById('scheduleType').value;
+          const currentSchedule = schedules[scheduleType];
+          if (currentSchedule && currentSchedule[pIndex]) {
+            timeStr = currentSchedule[pIndex].name;
+          }
+        }
+      }
+
+      // Populate Modal Fields
+      document.getElementById('modalDate').value = dateStr;
+      document.getElementById('modalTime').value = timeStr;
+      document.getElementById('modalTask').value = '';
+      document.getElementById('modalStatus').innerText = '';
+      
+      // Show Modal
+      document.getElementById('todoModal').style.display = 'flex';
+    });
+
+    // Close Modal Button
+    document.getElementById('modalCancelBtn').onclick = function() {
+      document.getElementById('todoModal').style.display = 'none';
+    };
+
+    // Add Task to Google Sheets Button
+    document.getElementById('modalAddBtn').onclick = function() {
+      const dateVal = document.getElementById('modalDate').value;
+      const timeVal = document.getElementById('modalTime').value;
+      const taskVal = document.getElementById('modalTask').value;
+
+      if (!taskVal.trim()) {
+        alert("Please enter a to-do task.");
+        return;
+      }
+
+      document.getElementById('modalStatus').innerText = 'Sending...';
+      document.getElementById('modalStatus').style.color = '#f57f17';
+      document.getElementById('modalAddBtn').disabled = true;
+
+      const scriptURL = "https://script.google.com/a/macros/tanghin.edu.hk/s/AKfycbzQ0p8IOx6SybP0M2vyHh3UGYbeOMavZgw4VyhFHqC7aVKp4tIZj9lJaUWPigQeYlYcdA/exec";
+      
+      // Format as POST body parameters to match typical Google Apps Script parameters
+      const formParams = new URLSearchParams();
+      formParams.append('date', dateVal);
+      formParams.append('time', timeVal);
+      formParams.append('task', taskVal);
+
+      fetch(scriptURL, {
+        method: 'POST',
+        mode: 'no-cors', // Needed to POST to Google Apps Script without strict CORS restrictions
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded'
+        },
+        body: formParams.toString()
+      }).then(() => {
+        document.getElementById('modalStatus').innerText = 'Task added successfully!';
+        document.getElementById('modalStatus').style.color = '#01B468';
+        setTimeout(() => {
+          document.getElementById('todoModal').style.display = 'none';
+          document.getElementById('modalAddBtn').disabled = false;
+          // Optionally trigger a manual fetch right away so it renders faster locally
+          fetchTodoData();
+        }, 1200);
+      }).catch(err => {
+        console.error('Error adding to-do', err);
+        document.getElementById('modalStatus').innerText = 'Error adding task.';
+        document.getElementById('modalStatus').style.color = '#EA0000';
+        document.getElementById('modalAddBtn').disabled = false;
+      });
+    };
+
+    /* === PRE-EXISTING EVENT LISTENERS & INITIATIONS === */
     document.addEventListener('click', (e) => {
       const classEl = e.target.closest('.class-text');
       const teacherEl = e.target.closest('.teacher-text');
       const isControl = e.target.closest('.controls');
+      const isModal = e.target.closest('.modal-content'); // Allow clicking inside modal 
 
-      if (classEl) {
+      if (classEl && !isModal) {
         const val = classEl.textContent.trim().toLowerCase();
         activeFilter = (activeFilter && activeFilter.type === 'class' && activeFilter.value === val) ? null : { type: 'class', value: val };
         applyFilter();
-      } else if (teacherEl) {
+      } else if (teacherEl && !isModal) {
         const val = teacherEl.textContent.trim().toLowerCase();
         activeFilter = (activeFilter && activeFilter.type === 'teacher' && activeFilter.value === val) ? null : { type: 'teacher', value: val };
         applyFilter();
-      } else if (!isControl && activeFilter) {
+      } else if (!isControl && !isModal && activeFilter) {
         activeFilter = null;
         applyFilter();
       }
@@ -1039,5 +1239,4 @@
     setInterval(fetchTodoData, 10000);
     </script>
   </body>
-
 </html>
