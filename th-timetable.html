@@ -491,7 +491,7 @@
       <table id="timetable"></table>
     </div>
 
-    <!-- Hidden iFrame to handle background submission -->
+    <!-- Hidden iFrame for background submission -->
     <iframe name="hidden_iframe" id="hidden_iframe" style="display:none;"></iframe>
     
     <!-- Hidden form that posts to Google Apps Script -->
@@ -513,7 +513,7 @@
         <input type="text" id="modalTime" readonly>
         
         <label>To-Do Task</label>
-        <input type="text" id="modalTask" placeholder="Enter your task here...">
+        <input type="text" id="modalTask" placeholder="Enter your task here..." autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false">
         
         <div class="buttons">
           <button id="modalCancelBtn">Cancel</button>
@@ -534,15 +534,6 @@
     const CONFIRMATION_THRESHOLD = 2;
     const seenStatesMap = new Map();
     let globalTodos = [];
-
-    const periodToTimeMap = {
-      "0": "08:20", "1": "08:40", "2": "09:20", "3": "10:00", 
-      "4": "11:00", "5": "11:40", "6": "12:20", "7": "14:15", "8": "14:55",
-      "L": "13:30", "A": "15:40",
-      "0s": "08:00", "1s": "08:15", "2s": "08:50", "3s": "09:25", 
-      "4s": "10:15", "5s": "10:50", "6s": "11:25", "7s": "12:15", "8s": "12:50",
-      "As": "13:25"
-    };
 
     const cycleDays = {
       '2026-09-02': 1, '2026-09-03': 2, '2026-09-04': 3, '2026-09-07': 4, '2026-09-08': 5,
@@ -1117,42 +1108,47 @@
       }
     }
 
-    // Helper to calculate exact Period Code (0, A, L, 0s, 1s...) and label for Modal
+    // Dynamic Period Code, Label, and Time calculator for Normal, Summer, and Test schedules
     function getPeriodDetails(firstPeriod, scheduleType) {
       const isSummer = (scheduleType === 'summer');
+      const currentSchedule = schedules[scheduleType] || schedules['normal'];
 
       if (firstPeriod === 'before') {
         const code = isSummer ? '0s' : '0';
-        return { code: code, label: `Before School [${code}]` };
+        const time = isSummer ? '08:00' : '08:20';
+        return { code: code, label: 'Before School', time: time };
       }
+
       if (firstPeriod === 'after') {
         const code = isSummer ? 'As' : 'A';
-        return { code: code, label: `After School [${code}]` };
+        let time = '15:40';
+        if (isSummer) time = '13:25';
+        else if (scheduleType === 'test') time = '15:35';
+        return { code: code, label: 'After School', time: time };
       }
 
       const pIndex = parseInt(firstPeriod, 10);
-      const currentSchedule = schedules[scheduleType] || schedules['normal'];
-      
       if (currentSchedule && currentSchedule[pIndex]) {
         const item = currentSchedule[pIndex];
         const pName = item.name;
+        const startTime = formatMinutes(item.start);
 
         if (pName === 'Lunch') {
-          return { code: 'L', label: 'Lunch [L]' };
+          return { code: 'L', label: 'Lunch', time: startTime };
         }
 
         const match = pName.match(/^P(\d+)$/i);
         if (match) {
           const num = match[1];
           const code = isSummer ? (num + 's') : num;
-          return { code: code, label: `${pName} [${code}]` };
+          return { code: code, label: pName, time: startTime };
         }
 
         const fallbackCode = isSummer ? (pIndex + 's') : String(pIndex);
-        return { code: fallbackCode, label: `${pName} [${fallbackCode}]` };
+        return { code: fallbackCode, label: pName, time: startTime };
       }
 
-      return { code: '', label: '' };
+      return { code: '', label: '', time: '23:59' };
     }
 
     /* === DOUBLE CLICK EVENT & MODAL LOGIC === */
@@ -1178,8 +1174,9 @@
       const periodDetails = getPeriodDetails(firstPeriod, scheduleType);
 
       document.getElementById('modalDate').value = dateStr;
-      document.getElementById('modalTime').value = periodDetails.label;
-      document.getElementById('modalTime').dataset.code = periodDetails.code;
+      document.getElementById('modalTime').value = periodDetails.label; // Displays clean label (No [xx])
+      document.getElementById('modalTime').dataset.code = periodDetails.code; // Store period code
+      document.getElementById('modalTime').dataset.time = periodDetails.time; // Store start time
       document.getElementById('modalTask').value = '';
       document.getElementById('modalStatus').innerText = '';
       
@@ -1195,7 +1192,9 @@
     document.getElementById('modalAddBtn').onclick = function() {
       const taskVal = document.getElementById('modalTask').value;
       const dateVal = document.getElementById('modalDate').value;
-      const periodCode = document.getElementById('modalTime').dataset.code || '';
+      const modalTimeEl = document.getElementById('modalTime');
+      const periodCode = modalTimeEl.dataset.code || '';
+      const timeVal = modalTimeEl.dataset.time || '23:59';
 
       if (!taskVal.trim()) {
         alert("Please enter a to-do task.");
@@ -1207,27 +1206,26 @@
       document.getElementById('modalAddBtn').disabled = true;
 
       // 1. INSTANT LOCAL UPDATE: Render new task on webpage right away
-      const approxTime = periodToTimeMap[periodCode] || "23:59";
       globalTodos.push({
         dateStr: dateVal,
-        time: approxTime,
+        time: timeVal,
         text: taskVal
       });
       renderTable(); 
 
       // 2. BACKGROUND SUBMISSION: Submit to Google Apps Script asynchronously
       document.getElementById('formDate').value = dateVal;
-      document.getElementById('formPeriod').value = periodCode;
-      document.getElementById('formTime').value = approxTime;
+      document.getElementById('formPeriod').value = periodCode; // Period code sent to Sheet
+      document.getElementById('formTime').value = timeVal;
       document.getElementById('formTask').value = taskVal;
 
       document.getElementById('gasForm').submit();
 
-      // 3. Smoothly close modal after 600ms
+      // 3. Smoothly close modal after 500ms
       setTimeout(() => {
         document.getElementById('todoModal').style.display = 'none';
         document.getElementById('modalAddBtn').disabled = false;
-      }, 600);
+      }, 500);
     };
 
     /* === PRE-EXISTING EVENT LISTENERS & INITIATIONS === */
