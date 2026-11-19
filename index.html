@@ -26,7 +26,7 @@
 
     const get7DaysCutoffYYYYMMDD = () => {
       const d = new Date();
-      d.setDate(d.getDate() - 7);
+      d.setDate(d.getDate() - 6); // Today + past 6 days = 7-day window
       return formatYYYYMMDD(d);
     };
 
@@ -48,12 +48,31 @@
     const normalizeRestaurants = (list) => {
       if (!Array.isArray(list)) return [];
       return list.map(item => {
-        if (typeof item === 'string') return { name: item, keywords: '' };
-        return { name: String(item.name || ''), keywords: String(item.keywords || '') };
+        if (typeof item === 'string') return { name: item.trim(), keywords: '' };
+        return { name: String(item.name || '').trim(), keywords: String(item.keywords || '').trim() };
       }).filter(item => item.name);
     };
 
-    // When query is empty: show all rollable restaurants (excluding recent 3 eaten within recent 7 days)
+    // Get up to 3 UNIQUE restaurants eaten strictly within the recent 7 days
+    const getExcluded3InLast7Days = (historyList, todayStr, cutoff7DaysStr) => {
+      const recent7 = sortHistoryDesc(historyList).filter(
+        h => h.date >= cutoff7DaysStr && h.date <= todayStr && String(h.restaurant || '').trim() !== ''
+      );
+      const uniqueNames = [];
+      const seenLower = new Set();
+      for (const h of recent7) {
+        const name = String(h.restaurant).trim();
+        const lower = name.toLowerCase();
+        if (!seenLower.has(lower)) {
+          seenLower.add(lower);
+          uniqueNames.push(name);
+          if (uniqueNames.length === 3) break;
+        }
+      }
+      return uniqueNames;
+    };
+
+    // When query is empty: show all rollable restaurants (excluding recent 3 unique eaten within recent 7 days)
     // When query is non-empty: search all restaurants by name or keywords
     const filterRestaurants = (list, query, excludedNames = []) => {
       const normalized = normalizeRestaurants(list);
@@ -153,8 +172,25 @@
       };
 
       const handleRoll = () => {
+        const excluded = getExcluded3InLast7Days(data.history, todayStr, cutoff7DaysStr);
+        const rollable = filterRestaurants(data.restaurants, '', excluded);
+        if (rollable.length === 0) return;
+
+        const chosen = rollable[Math.floor(Math.random() * rollable.length)].name;
+
+        setData(prev => {
+          const newHistory = [...prev.history];
+          const todayIndex = newHistory.findIndex(h => h.date === todayStr);
+          if (todayIndex > -1) {
+            newHistory[todayIndex].restaurant = chosen;
+          } else {
+            newHistory.unshift({ date: todayStr, restaurant: chosen, receipt: null });
+          }
+          return { ...prev, history: sortHistoryDesc(newHistory) };
+        });
+
         autoAddCurrentUser();
-        postAction({ action: 'roll_restaurant' });
+        postAction({ action: 'roll_restaurant', chosen });
       };
 
       const submitTodayRestaurant = (chosenName) => {
@@ -288,12 +324,7 @@
       const activeReceipt = currentHistory?.receipt;
       const activePayments = data.payments.filter(p => p.date === selectedDate);
 
-      // Recent 3 eaten strictly within the recent 7 days
-      const excluded3InLast7Days = sortedHistory
-        .filter(h => h.date >= cutoff7DaysStr && h.restaurant)
-        .slice(0, 3)
-        .map(h => h.restaurant);
-
+      const excluded3InLast7Days = getExcluded3InLast7Days(sortedHistory, todayStr, cutoff7DaysStr);
       const todaySuggestions = filterRestaurants(data.restaurants, customRest, excluded3InLast7Days);
       const pastSuggestions = filterRestaurants(data.restaurants, pastRest, excluded3InLast7Days);
 
