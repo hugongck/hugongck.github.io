@@ -14,39 +14,49 @@
   <div id="root"></div>
 
   <script type="text/babel">
-    const { useState, useEffect } = React;
+    const { useState, useEffect, useRef } = React;
 
     const API_URL = 'https://script.google.com/macros/s/AKfycbxy2q1WdKxfR9MfUigLdTHVzOaJeXV4_MY6MvwWQOOEsuLUjeaZvyFaEaKn3UbMa7r5/exec'; 
 
-    // Safer local timezone calculator for the backend (YYYY-MM-DD)
     const getLocalYYYYMMDD = () => {
       const d = new Date();
       return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
     };
 
-    // Bulletproof normalizer: cleans up messy backend dates (like "Wed Nov 18 2026...") into YYYY-MM-DD
-    const normalizeDate = (dStr) => {
-      if (!dStr) return '';
-      // If it's already YYYY-MM-DD, leave it alone
-      if (/^\d{4}-\d{2}-\d{2}$/.test(dStr)) return dStr;
+    // Ultra-safe normalizer
+    const normalizeDate = (raw) => {
+      if (!raw) return '';
+      const str = String(raw).trim();
       
-      // If it's a messy string, parse it properly
-      const d = new Date(dStr);
-      return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+      // Catch "2026-11-18" or "2026-11-18T..."
+      const match = str.match(/^(\d{4}-\d{2}-\d{2})/);
+      if (match) return match[1];
+      
+      // Catch "Wed Nov 18 2026..."
+      const d = new Date(str);
+      if (!isNaN(d.getTime())) {
+        return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+      }
+      return str; 
     };
 
-    // Formatter to show "星期X MM/DD" on the UI
+    // Ultra-safe formatter for UI
     const formatDisplayDate = (dateStr) => {
       if (!dateStr) return '';
-      const parts = dateStr.split('-');
-      if (parts.length !== 3) return dateStr;
-      const [y, m, d] = parts;
+      const cleanStr = String(dateStr).split('T')[0]; // Strip time if it sneaks through
+      const parts = cleanStr.split('-');
       
+      if (parts.length !== 3) return cleanStr; 
+      
+      const y = parseInt(parts[0], 10);
+      const m = parseInt(parts[1], 10);
+      const d = parseInt(parts[2], 10);
+      
+      if (isNaN(y) || isNaN(m) || isNaN(d)) return cleanStr;
+
       const dateObj = new Date(y, m - 1, d);
       const days = ['日', '一', '二', '三', '四', '五', '六'];
-      const weekDay = days[dateObj.getDay()];
-      
-      return `星期${weekDay} ${m}/${d}`;
+      return `星期${days[dateObj.getDay()]} ${m}/${d}`;
     };
 
     function App() {
@@ -64,13 +74,20 @@
       const todayStr = getLocalYYYYMMDD();
       const [selectedDate, setSelectedDate] = useState(todayStr);
 
+      // We use this to pause background fetching for 4 seconds after making a change.
+      // This prevents the UI from fetching "old" data before Google Sheets finishes saving, 
+      // which stops the flashing/reverting bug!
+      const pausePollingUntil = useRef(0);
+
       useEffect(() => {
         const fetchData = async () => {
+          // If we recently made a change, skip the fetch so we don't accidentally load old data
+          if (Date.now() < pausePollingUntil.current) return;
+
           try {
             const res = await fetch(API_URL, { redirect: 'follow' });
             const json = await res.json();
             
-            // Instantly clean up dates coming from the backend
             json.history = json.history.map(h => ({ ...h, date: normalizeDate(h.date) }));
             json.payments = json.payments.map(p => ({ ...p, date: normalizeDate(p.date) }));
             
@@ -88,10 +105,15 @@
       }, []);
 
       const postAction = async (payload) => {
-        await fetch(API_URL, { method: 'POST', redirect: 'follow', body: JSON.stringify(payload) });
+        // Pause background polling for 4 seconds while Google updates
+        pausePollingUntil.current = Date.now() + 4000; 
+        try {
+          await fetch(API_URL, { method: 'POST', redirect: 'follow', body: JSON.stringify(payload) });
+        } catch (e) {
+          console.error("Action failed:", e);
+        }
       };
 
-      // Helper to auto-add the user who initiated the lunch
       const autoAddCurrentUser = () => {
         if (!newName.trim()) return;
         postAction({ action: 'add_user', name: newName.trim(), date: todayStr });
@@ -108,7 +130,7 @@
 
       const handleRoll = () => {
         postAction({ action: 'roll_restaurant' });
-        autoAddCurrentUser(); // Auto-join the creator
+        autoAddCurrentUser();
       };
 
       const handleManualSubmit = (e) => {
@@ -116,7 +138,7 @@
         if (!customRest.trim()) return;
         
         postAction({ action: 'set_restaurant', restaurant: customRest.trim() });
-        autoAddCurrentUser(); // Auto-join the creator
+        autoAddCurrentUser();
         
         setData(prev => {
           const newHistory = [...prev.history];
@@ -147,6 +169,7 @@
 
       const handleTogglePaid = (name, currentStatus) => {
         const isPaid = currentStatus === 'TRUE' || currentStatus === true;
+        
         postAction({ action: 'toggle_paid', name, date: selectedDate, paid: !isPaid });
         
         setData(prev => ({
@@ -172,6 +195,8 @@
             mimeType: file.type,
             filename: `${selectedDate}-receipt`
           });
+          // Unpause immediately after upload finishes so we fetch the receipt URL
+          pausePollingUntil.current = 0; 
           setUploading(false);
         };
         reader.readAsDataURL(file);
@@ -198,7 +223,6 @@
               <h2 className="text-2xl font-bold text-gray-800 mt-1">{activeRestaurant}</h2>
             </div>
 
-            {/* ONLY show inputs if today is selected AND no restaurant has been chosen yet */}
             {selectedDate === todayStr && activeRestaurant === 'Not chosen yet' && (
               <div className="flex flex-col gap-3 mb-4">
                 <form onSubmit={handleManualSubmit} className="flex gap-2">
@@ -230,7 +254,6 @@
               </div>
             )}
 
-            {/* Receipt Section */}
             {activeRestaurant !== 'Not chosen yet' && (
               <div className="border-t pt-4 mt-2 flex items-center justify-between">
                 <span className="text-sm font-semibold text-gray-600">Receipt</span>
