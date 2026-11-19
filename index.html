@@ -23,16 +23,14 @@
       return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
     };
 
-    // Ultra-safe normalizer
+    // Ultra-safe date normalizer
     const normalizeDate = (raw) => {
       if (!raw) return '';
       const str = String(raw).trim();
       
-      // Catch "2026-11-18" or "2026-11-18T..."
       const match = str.match(/^(\d{4}-\d{2}-\d{2})/);
       if (match) return match[1];
       
-      // Catch "Wed Nov 18 2026..."
       const d = new Date(str);
       if (!isNaN(d.getTime())) {
         return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
@@ -40,23 +38,24 @@
       return str; 
     };
 
-    // Ultra-safe formatter for UI
+    // Formatter to render "星期X MM/DD" safely
     const formatDisplayDate = (dateStr) => {
       if (!dateStr) return '';
-      const cleanStr = String(dateStr).split('T')[0]; // Strip time if it sneaks through
+      const cleanStr = String(dateStr).split('T')[0];
       const parts = cleanStr.split('-');
       
-      if (parts.length !== 3) return cleanStr; 
-      
-      const y = parseInt(parts[0], 10);
-      const m = parseInt(parts[1], 10);
-      const d = parseInt(parts[2], 10);
-      
-      if (isNaN(y) || isNaN(m) || isNaN(d)) return cleanStr;
-
-      const dateObj = new Date(y, m - 1, d);
-      const days = ['日', '一', '二', '三', '四', '五', '六'];
-      return `星期${days[dateObj.getDay()]} ${m}/${d}`;
+      if (parts.length === 3) {
+        const y = parseInt(parts[0], 10);
+        const m = parseInt(parts[1], 10);
+        const d = parseInt(parts[2], 10);
+        
+        if (!isNaN(y) && !isNaN(m) && !isNaN(d)) {
+          const dateObj = new Date(y, m - 1, d);
+          const days = ['日', '一', '二', '三', '四', '五', '六'];
+          return `星期${days[dateObj.getDay()]} ${m}/${d}`;
+        }
+      }
+      return cleanStr; // Fallback so the date never fully disappears
     };
 
     function App() {
@@ -74,19 +73,26 @@
       const todayStr = getLocalYYYYMMDD();
       const [selectedDate, setSelectedDate] = useState(todayStr);
 
-      // We use this to pause background fetching for 4 seconds after making a change.
-      // This prevents the UI from fetching "old" data before Google Sheets finishes saving, 
-      // which stops the flashing/reverting bug!
+      // The Anti-Flash Lock
       const pausePollingUntil = useRef(0);
 
       useEffect(() => {
+        let isCancelled = false;
+
         const fetchData = async () => {
-          // If we recently made a change, skip the fetch so we don't accidentally load old data
+          // If we recently made a change, don't even start fetching
           if (Date.now() < pausePollingUntil.current) return;
 
           try {
             const res = await fetch(API_URL, { redirect: 'follow' });
             const json = await res.json();
+            
+            if (isCancelled) return;
+
+            // CRITICAL ANTI-FLASH FIX: 
+            // If the user clicked something WHILE this fetch was happening, 
+            // throw away this old data so it doesn't overwrite our optimistic UI!
+            if (Date.now() < pausePollingUntil.current) return;
             
             json.history = json.history.map(h => ({ ...h, date: normalizeDate(h.date) }));
             json.payments = json.payments.map(p => ({ ...p, date: normalizeDate(p.date) }));
@@ -99,13 +105,18 @@
             setLoading(false);
           }
         };
+        
         fetchData();
         const interval = setInterval(fetchData, 3000);
-        return () => clearInterval(interval);
+        
+        return () => {
+          isCancelled = true;
+          clearInterval(interval);
+        };
       }, []);
 
       const postAction = async (payload) => {
-        // Pause background polling for 4 seconds while Google updates
+        // Lock background updates for 4 seconds
         pausePollingUntil.current = Date.now() + 4000; 
         try {
           await fetch(API_URL, { method: 'POST', redirect: 'follow', body: JSON.stringify(payload) });
@@ -116,8 +127,8 @@
 
       const autoAddCurrentUser = () => {
         if (!newName.trim()) return;
-        postAction({ action: 'add_user', name: newName.trim(), date: todayStr });
         
+        // Optimistic UI
         setData(prev => {
           const exists = prev.payments.find(p => p.date === todayStr && p.name === newName.trim());
           if (exists) return prev;
@@ -126,20 +137,21 @@
             payments: [...prev.payments, { date: todayStr, name: newName.trim(), paid: false }]
           };
         });
+        
+        // Backend
+        postAction({ action: 'add_user', name: newName.trim(), date: todayStr });
       };
 
       const handleRoll = () => {
-        postAction({ action: 'roll_restaurant' });
         autoAddCurrentUser();
+        postAction({ action: 'roll_restaurant' });
       };
 
       const handleManualSubmit = (e) => {
         e.preventDefault();
         if (!customRest.trim()) return;
         
-        postAction({ action: 'set_restaurant', restaurant: customRest.trim() });
-        autoAddCurrentUser();
-        
+        // Optimistic UI
         setData(prev => {
           const newHistory = [...prev.history];
           const todayIndex = newHistory.findIndex(h => h.date === todayStr);
@@ -151,6 +163,8 @@
           return { ...prev, history: newHistory };
         });
         
+        autoAddCurrentUser();
+        postAction({ action: 'set_restaurant', restaurant: customRest.trim() });
         setCustomRest('');
       };
 
@@ -159,25 +173,28 @@
         if (!newName.trim()) return;
         localStorage.setItem('lunch_username', newName.trim());
         
-        postAction({ action: 'add_user', name: newName, date: selectedDate });
-        
+        // Optimistic UI
         setData(prev => ({
           ...prev,
           payments: [...prev.payments, { date: selectedDate, name: newName, paid: false }]
         }));
+        
+        postAction({ action: 'add_user', name: newName, date: selectedDate });
       };
 
       const handleTogglePaid = (name, currentStatus) => {
         const isPaid = currentStatus === 'TRUE' || currentStatus === true;
         
-        postAction({ action: 'toggle_paid', name, date: selectedDate, paid: !isPaid });
-        
+        // Optimistic UI (Updates Instantly!)
         setData(prev => ({
           ...prev,
           payments: prev.payments.map(p => 
             (p.name === name && p.date === selectedDate) ? { ...p, paid: !isPaid } : p
           )
         }));
+        
+        // Backend upload
+        postAction({ action: 'toggle_paid', name, date: selectedDate, paid: !isPaid });
       };
 
       const handleFileUpload = (e) => {
@@ -195,7 +212,7 @@
             mimeType: file.type,
             filename: `${selectedDate}-receipt`
           });
-          // Unpause immediately after upload finishes so we fetch the receipt URL
+          // Allow updates again so we can fetch the receipt URL
           pausePollingUntil.current = 0; 
           setUploading(false);
         };
@@ -318,13 +335,10 @@
                 const myPayment = data.payments.find(p => p.date === h.date && p.name === newName);
                 const myPaidStatus = myPayment ? (myPayment.paid === 'TRUE' || myPayment.paid === true) : null;
 
-                // Determine border and background styles based on whether the item is Today, and whether it's Selected
                 const isSelected = selectedDate === h.date;
                 const isToday = h.date === todayStr;
                 
                 const bgClass = isSelected ? 'bg-indigo-50' : 'bg-gray-50 hover:bg-gray-100';
-                
-                // Solid black border if it's today. If not today but selected, subtle blue border. Otherwise transparent.
                 const borderClass = isToday 
                   ? 'border-2 border-gray-800' 
                   : (isSelected ? 'border border-indigo-200' : 'border border-transparent');
