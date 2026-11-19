@@ -23,45 +23,16 @@
       return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
     };
 
-    // Safely extract date no matter how Google Sheets capitalizes the column header
-    const extractDateFromRow = (row) => {
-      if (!row) return '';
-      return row.date || row.Date || row.DATE || row.timestamp || '';
-    };
-
-    // Ultra-safe date normalizer
-    const normalizeDate = (raw) => {
-      if (!raw) return '';
-      const str = String(raw).trim();
-      
-      const match = str.match(/^(\d{4}-\d{2}-\d{2})/);
-      if (match) return match[1];
-      
-      const d = new Date(str);
-      if (!isNaN(d.getTime())) {
-        return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-      }
-      return str; 
-    };
-
-    // Formatter to render "星期X MM/DD" safely
+    // Formatter to safely display "星期X MM/DD"
     const formatDisplayDate = (dateStr) => {
-      if (!dateStr) return 'Date Error'; // Shows something is wrong instead of disappearing
-      const cleanStr = String(dateStr).split('T')[0];
-      const parts = cleanStr.split('-');
-      
+      if (!dateStr) return '';
+      const parts = String(dateStr).split('-');
       if (parts.length === 3) {
-        const y = parseInt(parts[0], 10);
-        const m = parseInt(parts[1], 10);
-        const d = parseInt(parts[2], 10);
-        
-        if (!isNaN(y) && !isNaN(m) && !isNaN(d)) {
-          const dateObj = new Date(y, m - 1, d);
-          const days = ['日', '一', '二', '三', '四', '五', '六'];
-          return `星期${days[dateObj.getDay()]} ${m}/${d}`;
-        }
+        const dateObj = new Date(parts[0], parseInt(parts[1]) - 1, parts[2]);
+        const days = ['日', '一', '二', '三', '四', '五', '六'];
+        return `星期${days[dateObj.getDay()]} ${parts[1]}/${parts[2]}`;
       }
-      return cleanStr;
+      return dateStr;
     };
 
     function App() {
@@ -72,14 +43,11 @@
       
       const [loading, setLoading] = useState(() => !localStorage.getItem('lunch_data'));
       const [uploading, setUploading] = useState(false);
-      
       const [newName, setNewName] = useState(() => localStorage.getItem('lunch_username') || '');
       const [customRest, setCustomRest] = useState('');
       
       const todayStr = getLocalYYYYMMDD();
       const [selectedDate, setSelectedDate] = useState(todayStr);
-
-      // The Anti-Flash Lock
       const pausePollingUntil = useRef(0);
 
       useEffect(() => {
@@ -87,24 +55,11 @@
 
         const fetchData = async () => {
           if (Date.now() < pausePollingUntil.current) return;
-
           try {
             const res = await fetch(API_URL, { redirect: 'follow' });
             const json = await res.json();
             
-            if (isCancelled) return;
-            if (Date.now() < pausePollingUntil.current) return;
-            
-            // Map the data using our new safe extraction logic
-            json.history = json.history.map(h => ({ 
-              ...h, 
-              date: normalizeDate(extractDateFromRow(h)) 
-            }));
-            
-            json.payments = json.payments.map(p => ({ 
-              ...p, 
-              date: normalizeDate(extractDateFromRow(p)) 
-            }));
+            if (isCancelled || Date.now() < pausePollingUntil.current) return;
             
             setData(json);
             localStorage.setItem('lunch_data', JSON.stringify(json));
@@ -117,11 +72,7 @@
         
         fetchData();
         const interval = setInterval(fetchData, 3000);
-        
-        return () => {
-          isCancelled = true;
-          clearInterval(interval);
-        };
+        return () => { isCancelled = true; clearInterval(interval); };
       }, []);
 
       const postAction = async (payload) => {
@@ -135,7 +86,6 @@
 
       const autoAddCurrentUser = () => {
         if (!newName.trim()) return;
-        
         setData(prev => {
           const exists = prev.payments.find(p => p.date === todayStr && p.name === newName.trim());
           if (exists) return prev;
@@ -144,7 +94,6 @@
             payments: [...prev.payments, { date: todayStr, name: newName.trim(), paid: false }]
           };
         });
-        
         postAction({ action: 'add_user', name: newName.trim(), date: todayStr });
       };
 
@@ -207,8 +156,6 @@
         const reader = new FileReader();
         reader.onload = async (ev) => {
           const base64 = ev.target.result;
-          
-          // Bulletproof filename - uses selected date, falls back to today's date
           const finalDateToUse = selectedDate || todayStr;
           
           await postAction({
@@ -216,7 +163,7 @@
             date: finalDateToUse,
             base64: base64,
             mimeType: file.type,
-            filename: `${finalDateToUse}-receipt`
+            filename: `${finalDateToUse}-receipt` // Fixes the filename missing date!
           });
           
           pausePollingUntil.current = 0; 
@@ -236,7 +183,6 @@
       return (
         <div className="max-w-md mx-auto p-4 font-sans min-h-screen pb-10 pt-6">
           
-          {/* Main Action Card */}
           <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6 mb-3">
             <div className="text-center mb-4">
               <p className={`text-sm ${selectedDate === todayStr ? 'text-red-600 font-bold text-base' : 'text-gray-500 font-medium'}`}>
@@ -293,7 +239,6 @@
             )}
           </div>
 
-          {/* Participants & Payments */}
           <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6 mb-3">
             <h3 className="font-bold text-lg mb-4 text-gray-700">Participants</h3>
             <form onSubmit={handleAddUser} className="flex gap-2 mb-4">
@@ -333,7 +278,6 @@
             </ul>
           </div>
 
-          {/* 7-Day History */}
           <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
             <h3 className="font-bold text-lg mb-4 text-gray-700">Past 7 Days</h3>
             <div className="space-y-2">
