@@ -16,17 +16,14 @@
   <script type="text/babel">
     const { useState, useEffect } = React;
 
-    // REPLACE THIS WITH YOUR DEPLOYED GOOGLE APPS SCRIPT WEB APP URL
-    const API_URL = 'YOUR_WEB_APP_URL_HERE'; 
+    const API_URL = 'https://script.google.com/macros/s/AKfycbxy2q1WdKxfR9MfUigLdTHVzOaJeXV4_MY6MvwWQOOEsuLUjeaZvyFaEaKn3UbMa7r5/exec'; 
 
     function App() {
-      // Load cached data instantly so the user doesn't wait
       const [data, setData] = useState(() => {
         const cached = localStorage.getItem('lunch_data');
         return cached ? JSON.parse(cached) : { history: [], payments: [], restaurants: [] };
       });
       
-      // Only show full loading screen if we have absolutely no cached data
       const [loading, setLoading] = useState(() => !localStorage.getItem('lunch_data'));
       const [uploading, setUploading] = useState(false);
       
@@ -37,12 +34,11 @@
 
       useEffect(() => {
         const fetchData = async () => {
-          if (API_URL === 'YOUR_WEB_APP_URL_HERE') return setLoading(false);
           try {
             const res = await fetch(API_URL, { redirect: 'follow' });
             const json = await res.json();
             setData(json);
-            localStorage.setItem('lunch_data', JSON.stringify(json)); // Cache the fresh data
+            localStorage.setItem('lunch_data', JSON.stringify(json));
             setLoading(false);
           } catch (e) { 
             console.error(e); 
@@ -55,24 +51,19 @@
       }, []);
 
       const postAction = async (payload) => {
-        if (API_URL === 'YOUR_WEB_APP_URL_HERE') return alert("Configure API_URL first.");
         await fetch(API_URL, { method: 'POST', redirect: 'follow', body: JSON.stringify(payload) });
       };
 
-      // Random Roll
       const handleRoll = () => {
         postAction({ action: 'roll_restaurant' });
-        // We let the polling update the UI for random rolls
       };
 
-      // Manual Enter
       const handleManualSubmit = (e) => {
         e.preventDefault();
         if (!customRest.trim()) return;
         
         postAction({ action: 'set_restaurant', restaurant: customRest.trim() });
         
-        // Optimistic UI Update: Instantly change it on screen
         setData(prev => {
           const newHistory = [...prev.history];
           const todayIndex = newHistory.findIndex(h => h.date === todayStr);
@@ -94,7 +85,6 @@
         
         postAction({ action: 'add_user', name: newName, date: selectedDate });
         
-        // Optimistic UI
         setData(prev => ({
           ...prev,
           payments: [...prev.payments, { date: selectedDate, name: newName, paid: false }]
@@ -105,7 +95,6 @@
         const isPaid = currentStatus === 'TRUE' || currentStatus === true;
         postAction({ action: 'toggle_paid', name, date: selectedDate, paid: !isPaid });
         
-        // Optimistic UI
         setData(prev => ({
           ...prev,
           payments: prev.payments.map(p => 
@@ -149,14 +138,15 @@
           {/* Main Action Card */}
           <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6 mb-6">
             <div className="text-center mb-4">
-              <p className="text-sm text-gray-500 font-medium">{selectedDate === todayStr ? 'Today' : selectedDate}</p>
+              <p className={`text-sm ${selectedDate === todayStr ? 'text-red-600 font-bold text-base' : 'text-gray-500 font-medium'}`}>
+                {selectedDate === todayStr ? 'Today' : selectedDate}
+              </p>
               <h2 className="text-2xl font-bold text-gray-800 mt-1">{activeRestaurant}</h2>
             </div>
 
-            {selectedDate === todayStr && (
+            {/* ONLY show inputs if today is selected AND no restaurant has been chosen yet */}
+            {selectedDate === todayStr && activeRestaurant === 'Not chosen yet' && (
               <div className="flex flex-col gap-3 mb-4">
-                
-                {/* Updated Manual Input with Enter Button */}
                 <form onSubmit={handleManualSubmit} className="flex gap-2">
                   <input 
                     type="text" 
@@ -248,19 +238,37 @@
           <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
             <h3 className="font-bold text-lg mb-4 text-gray-700">Past 7 Days</h3>
             <div className="space-y-2">
-              {data.history.map((h, i) => (
-                <button 
-                  key={i}
-                  onClick={() => setSelectedDate(h.date)}
-                  className={`w-full flex justify-between items-center p-3 rounded-lg text-left transition-colors ${selectedDate === h.date ? 'bg-indigo-50 border border-indigo-200' : 'bg-gray-50 hover:bg-gray-100 border border-transparent'}`}
-                >
-                  <span className="text-gray-500 text-sm">{h.date}</span>
-                  <div className="flex items-center gap-2">
-                    <span className="font-bold text-gray-700">{h.restaurant}</span>
-                    {h.receipt && <span className="text-lg" title="Has receipt">📸</span>}
-                  </div>
-                </button>
-              ))}
+              {data.history.map((h, i) => {
+                const myPayment = data.payments.find(p => p.date === h.date && p.name === newName);
+                const myPaidStatus = myPayment ? (myPayment.paid === 'TRUE' || myPayment.paid === true) : null;
+
+                return (
+                  <button 
+                    key={i}
+                    onClick={() => setSelectedDate(h.date)}
+                    className={`w-full flex justify-between items-center p-3 rounded-lg text-left transition-colors ${selectedDate === h.date ? 'bg-indigo-50 border border-indigo-200' : 'bg-gray-50 hover:bg-gray-100 border border-transparent'}`}
+                  >
+                    <div className="flex flex-col">
+                      {h.date === todayStr ? (
+                        <span className="text-red-600 font-bold text-sm">Today</span>
+                      ) : (
+                        <span className="text-gray-500 text-sm">{h.date}</span>
+                      )}
+                      
+                      {myPayment && (
+                        <span className={`text-xs mt-1 font-bold ${myPaidStatus ? 'text-emerald-600' : 'text-rose-600'}`}>
+                          {myPaidStatus ? '✅ Paid' : '❌ Unpaid'}
+                        </span>
+                      )}
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                      <span className="font-bold text-gray-700">{h.restaurant}</span>
+                      {h.receipt && <span className="text-lg" title="Has receipt">📸</span>}
+                    </div>
+                  </button>
+                );
+              })}
             </div>
           </div>
         </div>
