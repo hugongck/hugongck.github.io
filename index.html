@@ -8,8 +8,21 @@
   <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
   <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <style>
+    /* Fix iOS Safari native date input overflowing its container */
+    input[type="date"] {
+      -webkit-appearance: none;
+      appearance: none;
+      display: block;
+      width: 100%;
+      max-width: 100%;
+      min-width: 0;
+      box-sizing: border-box;
+      min-height: 2.5rem;
+    }
+  </style>
 </head>
-<body class="bg-gray-50 text-gray-800">
+<body class="bg-gray-50 text-gray-800 overflow-x-hidden">
 
   <div id="root"></div>
 
@@ -151,7 +164,6 @@
             const res = await fetch(`${API_URL}?t=${Date.now()}`, { redirect: 'follow', cache: 'no-store' });
             const json = await res.json();
             
-            // Discard stale poll if an action happened while this GET was in flight
             if (isCancelled || inFlightActions.current > 0 || actionSeq.current !== seqAtStart) return;
             
             applyServerState(json);
@@ -186,7 +198,6 @@
         try {
           const res = await fetch(API_URL, { method: 'POST', redirect: 'follow', body: JSON.stringify(payload) });
           const json = await res.json();
-          // Only apply server state if this was the latest user action
           if (json && json.state && actionSeq.current === mySeq) {
             applyServerState(json.state);
           }
@@ -216,7 +227,6 @@
               ...missingNames.map(name => ({ date: targetDate, name, paid: false }))
             ]
           }));
-          // Single batched POST request instead of multiple sequential requests
           postAction({ action: 'add_users', names: missingNames, date: targetDate });
         }
       };
@@ -226,12 +236,7 @@
         const rollable = filterRestaurants(data.restaurants, '', excluded);
         if (rollable.length === 0) return;
 
-        const currentToday = data.history.find(h => h.date === todayStr)?.restaurant || '';
-        const differentChoices = rollable.filter(
-          r => r.name.toLowerCase() !== currentToday.trim().toLowerCase()
-        );
-        const pool = differentChoices.length > 0 ? differentChoices : rollable;
-        const chosen = pool[getRandomIndex(pool.length)].name;
+        const chosen = rollable[getRandomIndex(rollable.length)].name;
 
         setData(prev => {
           const newHistory = [...prev.history];
@@ -398,27 +403,17 @@
         <div className="max-w-md mx-auto p-4 font-sans min-h-screen pb-10 pt-6">
           
           {/* Main Display Area */}
-          <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6 mb-3">
-            <div className={`flex items-center ${activeRestaurant !== '食咩食咩' ? 'justify-between text-left' : 'justify-center text-center'}`}>
-              <div>
+          <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6 mb-3 overflow-hidden">
+            <div className={`flex items-center gap-3 ${activeRestaurant !== '食咩食咩' ? 'justify-between text-left' : 'justify-center text-center'}`}>
+              <div className="min-w-0 flex-1">
                 <p className={`text-sm ${selectedDate === todayStr ? 'text-red-600 font-bold text-base' : 'text-gray-500 font-medium'}`}>
                   {selectedDate === todayStr ? `今日 (${formatDisplayDate(selectedDate)})` : formatDisplayDate(selectedDate)}
                 </p>
-                <h2 className="text-2xl font-bold text-gray-800 mt-1">{activeRestaurant}</h2>
+                <h2 className="text-2xl font-bold text-gray-800 mt-1 break-words">{activeRestaurant}</h2>
               </div>
 
               {activeRestaurant !== '食咩食咩' && (
-                <div className="shrink-0 ml-3 flex items-center gap-2">
-                  {selectedDate === todayStr && !activeReceipt && (
-                    <button
-                      type="button"
-                      onClick={handleRoll}
-                      title="再抽過"
-                      className="bg-indigo-600 text-white font-bold py-2 px-3 rounded-lg shadow-sm hover:bg-indigo-700 active:scale-95 transition-all text-sm"
-                    >
-                      🎲
-                    </button>
-                  )}
+                <div className="shrink-0">
                   {activeReceipt ? (
                     <a href={activeReceipt} target="_blank" rel="noreferrer" className="text-indigo-600 text-sm font-bold underline bg-indigo-50 px-3 py-2 rounded-lg inline-block">
                       睇單據
@@ -440,7 +435,7 @@
                     <input 
                       type="text" 
                       placeholder="輸入餐廳或者關鍵字..." 
-                      className="flex-1 border p-3 rounded-lg bg-gray-50 focus:ring-2 focus:ring-indigo-500 outline-none"
+                      className="min-w-0 flex-1 border p-3 rounded-lg bg-gray-50 focus:ring-2 focus:ring-indigo-500 outline-none"
                       value={customRest}
                       onFocus={() => setShowTodaySuggestions(true)}
                       onBlur={() => setTimeout(() => setShowTodaySuggestions(false), 180)}
@@ -449,7 +444,7 @@
                         setShowTodaySuggestions(true);
                       }}
                     />
-                    <button type="submit" title="確定" className="bg-slate-700 text-white font-bold px-4 rounded-lg shadow-md hover:bg-slate-800 transition-all text-lg">
+                    <button type="submit" title="確定" className="shrink-0 bg-slate-700 text-white font-bold px-4 rounded-lg shadow-md hover:bg-slate-800 transition-all text-lg">
                       ↵
                     </button>
                   </div>
@@ -494,12 +489,12 @@
             <form onSubmit={handleAddUser} className="flex gap-2 mb-4">
               <input
                 type="text"
-                className="flex-1 border p-2 rounded-lg bg-gray-50 focus:ring-2 focus:ring-indigo-500 outline-none"
+                className="min-w-0 flex-1 border p-2 rounded-lg bg-gray-50 focus:ring-2 focus:ring-indigo-500 outline-none"
                 placeholder="人名"
                 value={newName}
                 onChange={e => setNewName(e.target.value)}
               />
-              <button type="submit" title="加入" className="bg-emerald-500 text-white px-5 rounded-lg font-bold shadow hover:bg-emerald-600 transition-colors text-xl leading-none">
+              <button type="submit" title="加入" className="shrink-0 bg-emerald-500 text-white px-5 rounded-lg font-bold shadow hover:bg-emerald-600 transition-colors text-xl leading-none">
                 +
               </button>
             </form>
@@ -509,7 +504,7 @@
                 {activePayments.map((p, i) => {
                   const isPaid = p.paid === 'TRUE' || p.paid === true;
                   return (
-                    <li key={i} className="relative flex justify-between items-center p-2.5 pt-3 bg-gray-50 rounded-lg border border-gray-100">
+                    <li key={i} className="relative flex justify-between items-center p-2.5 pt-3 bg-gray-50 rounded-lg border border-gray-100 min-w-0">
                       <button
                         type="button"
                         onClick={() => handleRemoveUser(p.name)}
@@ -556,9 +551,9 @@
                   <button 
                     key={i}
                     onClick={() => setSelectedDate(h.date)}
-                    className={`w-full flex justify-between items-center p-3 rounded-lg text-left transition-colors ${bgClass} ${borderClass}`}
+                    className={`w-full flex justify-between items-center gap-2 p-3 rounded-lg text-left transition-colors overflow-hidden ${bgClass} ${borderClass}`}
                   >
-                    <div className="flex flex-col">
+                    <div className="flex flex-col shrink-0">
                       {isToday ? (
                         <span className="text-red-600 font-bold text-sm">今日 ({formatDisplayDate(h.date)})</span>
                       ) : (
@@ -572,9 +567,9 @@
                       )}
                     </div>
 
-                    <div className="flex items-center gap-2">
-                      <span className="font-bold text-gray-700 text-right">{h.restaurant}</span>
-                      {h.receipt && <span className="text-lg" title="有單據">📸</span>}
+                    <div className="flex items-center gap-1.5 min-w-0">
+                      <span className="font-bold text-gray-700 text-right truncate">{h.restaurant}</span>
+                      {h.receipt && <span className="text-lg shrink-0" title="有單據">📸</span>}
                     </div>
                   </button>
                 );
@@ -585,18 +580,18 @@
             </div>
 
             {isAddingPast && (
-              <form onSubmit={handlePastSubmit} className="mt-4 p-4 bg-gray-50 border border-indigo-100 rounded-lg flex flex-col gap-3">
-                <div>
+              <form onSubmit={handlePastSubmit} className="mt-4 p-4 bg-gray-50 border border-indigo-100 rounded-lg flex flex-col gap-3 overflow-hidden">
+                <div className="w-full min-w-0">
                   <input 
                     type="date" 
                     value={pastDate} 
                     onChange={e => setPastDate(e.target.value)} 
-                    className="w-full p-2 border rounded-lg outline-none focus:ring-2 focus:ring-indigo-500 bg-white" 
+                    className="w-full max-w-full min-w-0 p-2 border rounded-lg outline-none focus:ring-2 focus:ring-indigo-500 bg-white text-sm" 
                     required 
                     max={todayStr} 
                   />
                 </div>
-                <div className="relative">
+                <div className="relative w-full min-w-0">
                   <input 
                     type="text" 
                     value={pastRest} 
@@ -607,7 +602,7 @@
                       setShowPastSuggestions(true);
                     }} 
                     placeholder="餐廳" 
-                    className="w-full p-2 border rounded-lg outline-none focus:ring-2 focus:ring-indigo-500 bg-white" 
+                    className="w-full min-w-0 p-2 border rounded-lg outline-none focus:ring-2 focus:ring-indigo-500 bg-white text-sm" 
                     required 
                   />
                   {showPastSuggestions && pastSuggestions.length > 0 && (
