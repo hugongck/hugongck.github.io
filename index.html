@@ -54,7 +54,6 @@
       }).filter(item => item.name);
     };
 
-    // Exclude meals eaten strictly within the past 3 calendar days (excluding today so re-rolls work)
     const getExcludedPast3CalendarDays = (historyList, todayStr, cutoff3DaysStr) => {
       const recent3Days = sortHistoryDesc(historyList).filter(
         h => h.date >= cutoff3DaysStr && h.date < todayStr && String(h.restaurant || '').trim() !== ''
@@ -87,7 +86,6 @@
       );
     };
 
-    // Unbiased random index using Web Crypto API with Math.random fallback
     const getRandomIndex = (max) => {
       if (max <= 1) return 0;
       if (window.crypto && window.crypto.getRandomValues) {
@@ -126,50 +124,76 @@
       const [pastRest, setPastRest] = useState('');
       const [showPastSuggestions, setShowPastSuggestions] = useState(false);
 
-      const pausePollingUntil = useRef(0);
       const inFlightActions = useRef(0);
+      const actionSeq = useRef(0);
+
+      const applyServerState = (rawState) => {
+        if (!rawState) return;
+        const formatted = {
+          history: sortHistoryDesc(rawState.history || []),
+          payments: rawState.payments || [],
+          restaurants: normalizeRestaurants(rawState.restaurants || [])
+        };
+        setData(formatted);
+        localStorage.setItem('lunch_data', JSON.stringify(formatted));
+      };
 
       useEffect(() => {
         let isCancelled = false;
+        let isFetching = false;
 
         const fetchData = async () => {
-          if (Date.now() < pausePollingUntil.current || inFlightActions.current > 0) return;
+          if (inFlightActions.current > 0 || isFetching) return;
+          isFetching = true;
+          const seqAtStart = actionSeq.current;
+
           try {
-            const res = await fetch(API_URL, { redirect: 'follow' });
+            const res = await fetch(`${API_URL}?t=${Date.now()}`, { redirect: 'follow', cache: 'no-store' });
             const json = await res.json();
             
-            if (isCancelled || Date.now() < pausePollingUntil.current || inFlightActions.current > 0) return;
+            // Discard stale poll if an action happened while this GET was in flight
+            if (isCancelled || inFlightActions.current > 0 || actionSeq.current !== seqAtStart) return;
             
-            const formattedJson = {
-              ...json,
-              history: sortHistoryDesc(json.history || []),
-              restaurants: normalizeRestaurants(json.restaurants || [])
-            };
-            
-            setData(formattedJson);
-            localStorage.setItem('lunch_data', JSON.stringify(formattedJson));
+            applyServerState(json);
             setLoading(false);
           } catch (e) { 
             console.error(e); 
             setLoading(false);
+          } finally {
+            isFetching = false;
           }
         };
         
         fetchData();
-        const interval = setInterval(fetchData, 3000);
-        return () => { isCancelled = true; clearInterval(interval); };
+        const interval = setInterval(fetchData, 1500);
+        const onVisible = () => {
+          if (document.visibilityState === 'visible') fetchData();
+        };
+        document.addEventListener('visibilitychange', onVisible);
+
+        return () => {
+          isCancelled = true;
+          clearInterval(interval);
+          document.removeEventListener('visibilitychange', onVisible);
+        };
       }, []);
 
       const postAction = async (payload) => {
         inFlightActions.current += 1;
-        pausePollingUntil.current = Date.now() + 5000; 
+        actionSeq.current += 1;
+        const mySeq = actionSeq.current;
+
         try {
-          await fetch(API_URL, { method: 'POST', redirect: 'follow', body: JSON.stringify(payload) });
+          const res = await fetch(API_URL, { method: 'POST', redirect: 'follow', body: JSON.stringify(payload) });
+          const json = await res.json();
+          // Only apply server state if this was the latest user action
+          if (json && json.state && actionSeq.current === mySeq) {
+            applyServerState(json.state);
+          }
         } catch (e) {
           console.error("Action failed:", e);
         } finally {
           inFlightActions.current = Math.max(0, inFlightActions.current - 1);
-          pausePollingUntil.current = Date.now() + 2000;
         }
       };
 
@@ -192,9 +216,8 @@
               ...missingNames.map(name => ({ date: targetDate, name, paid: false }))
             ]
           }));
-          missingNames.forEach(name => {
-            postAction({ action: 'add_user', name, date: targetDate });
-          });
+          // Single batched POST request instead of multiple sequential requests
+          postAction({ action: 'add_users', names: missingNames, date: targetDate });
         }
       };
 
@@ -203,7 +226,6 @@
         const rollable = filterRestaurants(data.restaurants, '', excluded);
         if (rollable.length === 0) return;
 
-        // Avoid repeating the currently displayed restaurant if there are other choices
         const currentToday = data.history.find(h => h.date === todayStr)?.restaurant || '';
         const differentChoices = rollable.filter(
           r => r.name.toLowerCase() !== currentToday.trim().toLowerCase()
@@ -307,7 +329,7 @@
           payments: [...prev.payments, { date: selectedDate, name: cleanUser, paid: false }]
         }));
         
-        postAction({ action: 'add_user', name: cleanUser, date: selectedDate });
+        postAction({ action: 'add_users', names: [cleanUser], date: selectedDate });
       };
 
       const handleRemoveUser = (nameToRemove) => {
@@ -351,7 +373,6 @@
             filename: `${finalDateToUse}-receipt`
           });
           
-          pausePollingUntil.current = 0; 
           setUploading(false);
         };
         reader.readAsDataURL(file);
