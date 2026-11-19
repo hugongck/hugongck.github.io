@@ -1,9 +1,9 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="zh-HK">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Lunch Tracker</title>
+  <title>食咩食咩</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
   <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
@@ -17,6 +17,7 @@
     const { useState, useEffect, useRef } = React;
 
     const API_URL = 'https://script.google.com/macros/s/AKfycbxy2q1WdKxfR9MfUigLdTHVzOaJeXV4_MY6MvwWQOOEsuLUjeaZvyFaEaKn3UbMa7r5/exec'; 
+    const DEFAULT_PARTICIPANTS = ['Hugo', 'Henry'];
 
     const formatYYYYMMDD = (d) => {
       return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
@@ -53,10 +54,10 @@
       }).filter(item => item.name);
     };
 
-    // Exclude ONLY meals eaten strictly within the past 3 calendar days (today - 3 days to today)
+    // Exclude meals eaten strictly within the past 3 calendar days (excluding today so re-rolls work)
     const getExcludedPast3CalendarDays = (historyList, todayStr, cutoff3DaysStr) => {
       const recent3Days = sortHistoryDesc(historyList).filter(
-        h => h.date >= cutoff3DaysStr && h.date <= todayStr && String(h.restaurant || '').trim() !== ''
+        h => h.date >= cutoff3DaysStr && h.date < todayStr && String(h.restaurant || '').trim() !== ''
       );
       const uniqueNames = [];
       const seenLower = new Set();
@@ -71,13 +72,12 @@
       return uniqueNames;
     };
 
-    // When query is empty: show all rollable restaurants (excluding past 3 calendar days)
-    // When query is non-empty: search all restaurants by name or keywords
     const filterRestaurants = (list, query, excludedNames = []) => {
       const normalized = normalizeRestaurants(list);
       const q = String(query || '').trim().toLowerCase();
       
       if (!q) {
+        if (!excludedNames || excludedNames.length === 0) return normalized;
         const excludedSet = new Set(excludedNames.map(n => String(n || '').trim().toLowerCase()));
         return normalized.filter(r => !excludedSet.has(r.name.toLowerCase()));
       }
@@ -85,6 +85,17 @@
       return normalized.filter(r => 
         r.name.toLowerCase().includes(q) || r.keywords.toLowerCase().includes(q)
       );
+    };
+
+    // Unbiased random index using Web Crypto API with Math.random fallback
+    const getRandomIndex = (max) => {
+      if (max <= 1) return 0;
+      if (window.crypto && window.crypto.getRandomValues) {
+        const arr = new Uint32Array(1);
+        window.crypto.getRandomValues(arr);
+        return arr[0] % max;
+      }
+      return Math.floor(Math.random() * max);
     };
 
     function App() {
@@ -107,7 +118,7 @@
       const [showTodaySuggestions, setShowTodaySuggestions] = useState(false);
       
       const todayStr = getLocalYYYYMMDD();
-      const cutoff3DaysStr = getDaysAgoYYYYMMDD(3); // e.g., 11/19 -> 11/16
+      const cutoff3DaysStr = getDaysAgoYYYYMMDD(3);
       const [selectedDate, setSelectedDate] = useState(todayStr);
       
       const [isAddingPast, setIsAddingPast] = useState(false);
@@ -116,17 +127,18 @@
       const [showPastSuggestions, setShowPastSuggestions] = useState(false);
 
       const pausePollingUntil = useRef(0);
+      const inFlightActions = useRef(0);
 
       useEffect(() => {
         let isCancelled = false;
 
         const fetchData = async () => {
-          if (Date.now() < pausePollingUntil.current) return;
+          if (Date.now() < pausePollingUntil.current || inFlightActions.current > 0) return;
           try {
             const res = await fetch(API_URL, { redirect: 'follow' });
             const json = await res.json();
             
-            if (isCancelled || Date.now() < pausePollingUntil.current) return;
+            if (isCancelled || Date.now() < pausePollingUntil.current || inFlightActions.current > 0) return;
             
             const formattedJson = {
               ...json,
@@ -149,25 +161,41 @@
       }, []);
 
       const postAction = async (payload) => {
-        pausePollingUntil.current = Date.now() + 4000; 
+        inFlightActions.current += 1;
+        pausePollingUntil.current = Date.now() + 5000; 
         try {
           await fetch(API_URL, { method: 'POST', redirect: 'follow', body: JSON.stringify(payload) });
         } catch (e) {
           console.error("Action failed:", e);
+        } finally {
+          inFlightActions.current = Math.max(0, inFlightActions.current - 1);
+          pausePollingUntil.current = Date.now() + 2000;
         }
       };
 
-      const autoAddCurrentUser = () => {
-        if (!newName.trim()) return;
-        setData(prev => {
-          const exists = prev.payments.find(p => p.date === todayStr && p.name === newName.trim());
-          if (exists) return prev;
-          return {
+      const ensureParticipantsForDate = (targetDate) => {
+        const namesToAdd = [...DEFAULT_PARTICIPANTS];
+        if (newName.trim() && !namesToAdd.some(n => n.toLowerCase() === newName.trim().toLowerCase())) {
+          namesToAdd.push(newName.trim());
+        }
+
+        const existingForDate = data.payments.filter(p => p.date === targetDate);
+        const missingNames = namesToAdd.filter(
+          name => !existingForDate.some(p => p.name.toLowerCase() === name.toLowerCase())
+        );
+
+        if (missingNames.length > 0) {
+          setData(prev => ({
             ...prev,
-            payments: [...prev.payments, { date: todayStr, name: newName.trim(), paid: false }]
-          };
-        });
-        postAction({ action: 'add_user', name: newName.trim(), date: todayStr });
+            payments: [
+              ...prev.payments,
+              ...missingNames.map(name => ({ date: targetDate, name, paid: false }))
+            ]
+          }));
+          missingNames.forEach(name => {
+            postAction({ action: 'add_user', name, date: targetDate });
+          });
+        }
       };
 
       const handleRoll = () => {
@@ -175,20 +203,28 @@
         const rollable = filterRestaurants(data.restaurants, '', excluded);
         if (rollable.length === 0) return;
 
-        const chosen = rollable[Math.floor(Math.random() * rollable.length)].name;
+        // Avoid repeating the currently displayed restaurant if there are other choices
+        const currentToday = data.history.find(h => h.date === todayStr)?.restaurant || '';
+        const differentChoices = rollable.filter(
+          r => r.name.toLowerCase() !== currentToday.trim().toLowerCase()
+        );
+        const pool = differentChoices.length > 0 ? differentChoices : rollable;
+        const chosen = pool[getRandomIndex(pool.length)].name;
 
         setData(prev => {
           const newHistory = [...prev.history];
           const todayIndex = newHistory.findIndex(h => h.date === todayStr);
           if (todayIndex > -1) {
-            newHistory[todayIndex].restaurant = chosen;
+            newHistory[todayIndex] = { ...newHistory[todayIndex], restaurant: chosen };
           } else {
             newHistory.unshift({ date: todayStr, restaurant: chosen, receipt: null });
           }
-          return { ...prev, history: sortHistoryDesc(newHistory) };
+          const updated = { ...prev, history: sortHistoryDesc(newHistory) };
+          localStorage.setItem('lunch_data', JSON.stringify(updated));
+          return updated;
         });
 
-        autoAddCurrentUser();
+        ensureParticipantsForDate(todayStr);
         postAction({ action: 'roll_restaurant', chosen });
       };
 
@@ -212,7 +248,7 @@
           return { ...prev, history: sortHistoryDesc(newHistory), restaurants: updatedRests };
         });
         
-        autoAddCurrentUser();
+        ensureParticipantsForDate(todayStr);
         postAction({ action: 'set_restaurant', restaurant: cleanName });
         setCustomRest('');
         setShowTodaySuggestions(false);
@@ -245,17 +281,7 @@
           return { ...prev, history: sortHistoryDesc(newHistory), restaurants: updatedRests };
         });
         
-        if (newName.trim()) {
-          setData(prev => {
-            const exists = prev.payments.find(p => p.date === pastDate && p.name === newName.trim());
-            if (!exists) {
-              return { ...prev, payments: [...prev.payments, { date: pastDate, name: newName.trim(), paid: false }] };
-            }
-            return prev;
-          });
-          postAction({ action: 'add_user', name: newName.trim(), date: pastDate });
-        }
-        
+        ensureParticipantsForDate(pastDate);
         postAction({ action: 'set_restaurant', restaurant: cleanRest, date: pastDate });
         
         setIsAddingPast(false);
@@ -267,15 +293,31 @@
 
       const handleAddUser = (e) => {
         e.preventDefault();
-        if (!newName.trim()) return;
-        localStorage.setItem('lunch_username', newName.trim());
+        const cleanUser = newName.trim();
+        if (!cleanUser) return;
+        localStorage.setItem('lunch_username', cleanUser);
         
+        const alreadyExists = data.payments.some(
+          p => p.date === selectedDate && p.name.toLowerCase() === cleanUser.toLowerCase()
+        );
+        if (alreadyExists) return;
+
         setData(prev => ({
           ...prev,
-          payments: [...prev.payments, { date: selectedDate, name: newName, paid: false }]
+          payments: [...prev.payments, { date: selectedDate, name: cleanUser, paid: false }]
         }));
         
-        postAction({ action: 'add_user', name: newName, date: selectedDate });
+        postAction({ action: 'add_user', name: cleanUser, date: selectedDate });
+      };
+
+      const handleRemoveUser = (nameToRemove) => {
+        setData(prev => ({
+          ...prev,
+          payments: prev.payments.filter(
+            p => !(p.date === selectedDate && p.name.toLowerCase() === nameToRemove.toLowerCase())
+          )
+        }));
+        postAction({ action: 'remove_user', name: nameToRemove, date: selectedDate });
       };
 
       const handleTogglePaid = (name, currentStatus) => {
@@ -315,40 +357,54 @@
         reader.readAsDataURL(file);
       };
 
-      if (loading) return <div className="flex h-screen items-center justify-center font-bold text-xl">Loading...</div>;
+      if (loading) return <div className="flex h-screen items-center justify-center font-bold text-xl">載入中...</div>;
 
       const sortedHistory = sortHistoryDesc(data.history);
       const currentHistory = sortedHistory.find(h => h.date === selectedDate);
-      const activeRestaurant = currentHistory?.restaurant || 'Not chosen yet';
+      const activeRestaurant = currentHistory?.restaurant || '食咩食咩';
       const activeReceipt = currentHistory?.receipt;
-      const activePayments = data.payments.filter(p => p.date === selectedDate);
+      
+      const rawActivePayments = data.payments.filter(p => p.date === selectedDate);
+      const activePayments = (rawActivePayments.length === 0 && selectedDate === todayStr && activeRestaurant === '食咩食咩')
+        ? DEFAULT_PARTICIPANTS.map(name => ({ date: todayStr, name, paid: false }))
+        : rawActivePayments;
 
       const excludedPast3Days = getExcludedPast3CalendarDays(sortedHistory, todayStr, cutoff3DaysStr);
       const todaySuggestions = filterRestaurants(data.restaurants, customRest, excludedPast3Days);
-      const pastSuggestions = filterRestaurants(data.restaurants, pastRest, excludedPast3Days);
+      const pastSuggestions = filterRestaurants(data.restaurants, pastRest, []);
 
       return (
         <div className="max-w-md mx-auto p-4 font-sans min-h-screen pb-10 pt-6">
           
           {/* Main Display Area */}
           <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6 mb-3">
-            <div className={`flex items-center ${activeRestaurant !== 'Not chosen yet' ? 'justify-between text-left' : 'justify-center text-center'}`}>
+            <div className={`flex items-center ${activeRestaurant !== '食咩食咩' ? 'justify-between text-left' : 'justify-center text-center'}`}>
               <div>
                 <p className={`text-sm ${selectedDate === todayStr ? 'text-red-600 font-bold text-base' : 'text-gray-500 font-medium'}`}>
-                  {selectedDate === todayStr ? `Today (${formatDisplayDate(selectedDate)})` : formatDisplayDate(selectedDate)}
+                  {selectedDate === todayStr ? `今日 (${formatDisplayDate(selectedDate)})` : formatDisplayDate(selectedDate)}
                 </p>
                 <h2 className="text-2xl font-bold text-gray-800 mt-1">{activeRestaurant}</h2>
               </div>
 
-              {activeRestaurant !== 'Not chosen yet' && (
-                <div className="shrink-0 ml-3">
+              {activeRestaurant !== '食咩食咩' && (
+                <div className="shrink-0 ml-3 flex items-center gap-2">
+                  {selectedDate === todayStr && !activeReceipt && (
+                    <button
+                      type="button"
+                      onClick={handleRoll}
+                      title="再抽過"
+                      className="bg-indigo-600 text-white font-bold py-2 px-3 rounded-lg shadow-sm hover:bg-indigo-700 active:scale-95 transition-all text-sm"
+                    >
+                      🎲
+                    </button>
+                  )}
                   {activeReceipt ? (
                     <a href={activeReceipt} target="_blank" rel="noreferrer" className="text-indigo-600 text-sm font-bold underline bg-indigo-50 px-3 py-2 rounded-lg inline-block">
-                      View Image
+                      睇單據
                     </a>
                   ) : (
                     <label className={`cursor-pointer text-sm font-bold py-2 px-3 rounded-lg transition-colors inline-block ${uploading ? 'bg-gray-200 text-gray-500' : 'bg-gray-100 hover:bg-gray-200 text-gray-700'}`}>
-                      {uploading ? 'Uploading...' : '📷 Upload'}
+                      {uploading ? '上載中...' : '📷 上載'}
                       <input type="file" accept="image/*" className="hidden" onChange={handleFileUpload} disabled={uploading} />
                     </label>
                   )}
@@ -356,13 +412,13 @@
               )}
             </div>
 
-            {selectedDate === todayStr && activeRestaurant === 'Not chosen yet' && (
+            {selectedDate === todayStr && activeRestaurant === '食咩食咩' && (
               <div className="flex flex-col gap-3 mt-4">
                 <form onSubmit={handleManualSubmit} className="relative">
                   <div className="flex gap-2">
                     <input 
                       type="text" 
-                      placeholder="Type restaurant or keyword..." 
+                      placeholder="輸入餐廳或者關鍵字..." 
                       className="flex-1 border p-3 rounded-lg bg-gray-50 focus:ring-2 focus:ring-indigo-500 outline-none"
                       value={customRest}
                       onFocus={() => setShowTodaySuggestions(true)}
@@ -372,19 +428,14 @@
                         setShowTodaySuggestions(true);
                       }}
                     />
-                    <button type="submit" className="bg-slate-700 text-white font-bold px-4 rounded-lg shadow-md hover:bg-slate-800 transition-all">
-                      Enter
+                    <button type="submit" title="確定" className="bg-slate-700 text-white font-bold px-4 rounded-lg shadow-md hover:bg-slate-800 transition-all text-lg">
+                      ↵
                     </button>
                   </div>
 
                   {/* Autocomplete Dropdown */}
                   {showTodaySuggestions && todaySuggestions.length > 0 && (
                     <ul className="absolute z-20 left-0 right-0 mt-1 bg-white border border-gray-200 rounded-lg shadow-lg max-h-48 overflow-y-auto divide-y divide-gray-100">
-                      {!customRest.trim() && (
-                        <li className="px-3.5 py-1.5 bg-gray-50 text-[11px] font-bold text-gray-400 uppercase tracking-wider">
-                          Available to Roll (Excludes Past 3 Days)
-                        </li>
-                      )}
                       {todaySuggestions.map((r, idx) => (
                         <li 
                           key={idx}
@@ -401,19 +452,18 @@
                   )}
                 </form>
 
-                <div className="flex items-center gap-3 my-1">
-                  <div className="flex-1 h-px bg-gray-200"></div>
-                  <span className="text-xs text-gray-400 font-bold uppercase">OR</span>
-                  <div className="flex-1 h-px bg-gray-200"></div>
-                </div>
-
                 <button 
+                  type="button"
                   onClick={handleRoll}
                   className="bg-indigo-600 text-white font-bold py-3 rounded-lg shadow-md hover:bg-indigo-700 active:scale-95 transition-all"
                 >
-                  唔知食咩 🎲 (Random Roll)
+                  唔知食咩 🎲
                 </button>
-                <p className="text-xs text-center text-gray-400">Excludes past 3 days: {excludedPast3Days.join(', ') || 'None'}</p>
+                {excludedPast3Days.length > 0 && (
+                  <p className="text-xs text-center text-gray-400">
+                    {excludedPast3Days.map(name => `-${name}`).join(' ')}
+                  </p>
+                )}
               </div>
             )}
           </div>
@@ -424,12 +474,12 @@
               <input
                 type="text"
                 className="flex-1 border p-2 rounded-lg bg-gray-50 focus:ring-2 focus:ring-indigo-500 outline-none"
-                placeholder="Type name to join..."
+                placeholder="人名"
                 value={newName}
                 onChange={e => setNewName(e.target.value)}
               />
-              <button type="submit" className="bg-emerald-500 text-white px-5 rounded-lg font-bold shadow hover:bg-emerald-600 transition-colors">
-                Add
+              <button type="submit" title="加入" className="bg-emerald-500 text-white px-5 rounded-lg font-bold shadow hover:bg-emerald-600 transition-colors text-xl leading-none">
+                +
               </button>
             </form>
 
@@ -438,11 +488,19 @@
                 {activePayments.map((p, i) => {
                   const isPaid = p.paid === 'TRUE' || p.paid === true;
                   return (
-                    <li key={i} className="flex justify-between items-center p-2.5 bg-gray-50 rounded-lg border border-gray-100">
+                    <li key={i} className="relative flex justify-between items-center p-2.5 pt-3 bg-gray-50 rounded-lg border border-gray-100">
+                      <button
+                        type="button"
+                        onClick={() => handleRemoveUser(p.name)}
+                        title="刪除"
+                        className="absolute -top-1.5 -left-1.5 w-4 h-4 rounded-full bg-gray-300 hover:bg-rose-500 text-white text-[10px] font-bold flex items-center justify-center leading-none shadow-sm transition-colors"
+                      >
+                        ×
+                      </button>
                       <span className="font-medium text-gray-700 text-sm truncate pr-1">{p.name}</span>
                       <label className="flex items-center gap-1.5 cursor-pointer select-none shrink-0">
                         <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full ${isPaid ? 'bg-emerald-100 text-emerald-700' : 'bg-rose-100 text-rose-600'}`}>
-                          {isPaid ? 'PAID' : 'UNPAID'}
+                          {isPaid ? '俾咗' : '未俾'}
                         </span>
                         <input 
                           type="checkbox" 
@@ -456,26 +514,58 @@
                 })}
               </ul>
             ) : (
-              <p className="text-gray-400 text-center text-sm py-2">No one added for this day.</p>
+              <p className="text-gray-400 text-center text-sm py-2">0人到場</p>
             )}
           </div>
 
           {/* History & Add Past Record Block */}
           <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
-            <div className="flex justify-between items-center mb-4">
-              <h3 className="font-bold text-lg text-gray-700">History</h3>
-              <button 
-                onClick={() => setIsAddingPast(!isAddingPast)}
-                className="text-indigo-600 text-xs font-bold bg-indigo-50 px-3 py-1.5 rounded-full hover:bg-indigo-100 transition-colors"
-              >
-                {isAddingPast ? 'Cancel' : '+ Add Past Record'}
-              </button>
+            <div className="space-y-2">
+              {sortedHistory.map((h, i) => {
+                const myPayment = data.payments.find(p => p.date === h.date && p.name.toLowerCase() === newName.trim().toLowerCase());
+                const myPaidStatus = myPayment ? (myPayment.paid === 'TRUE' || myPayment.paid === true) : null;
+
+                const isSelected = selectedDate === h.date;
+                const isToday = h.date === todayStr;
+                
+                const bgClass = isSelected ? 'bg-indigo-50' : 'bg-gray-50 hover:bg-gray-100';
+                const borderClass = isSelected ? 'border-2 border-gray-800' : 'border border-transparent';
+
+                return (
+                  <button 
+                    key={i}
+                    onClick={() => setSelectedDate(h.date)}
+                    className={`w-full flex justify-between items-center p-3 rounded-lg text-left transition-colors ${bgClass} ${borderClass}`}
+                  >
+                    <div className="flex flex-col">
+                      {isToday ? (
+                        <span className="text-red-600 font-bold text-sm">今日 ({formatDisplayDate(h.date)})</span>
+                      ) : (
+                        <span className="text-gray-500 text-sm">{formatDisplayDate(h.date)}</span>
+                      )}
+                      
+                      {myPayment && (
+                        <span className={`text-xs mt-1 font-bold ${myPaidStatus ? 'text-emerald-600' : 'text-rose-600'}`}>
+                          {myPaidStatus ? '✅ 俾咗' : '❌ 未俾'}
+                        </span>
+                      )}
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                      <span className="font-bold text-gray-700 text-right">{h.restaurant}</span>
+                      {h.receipt && <span className="text-lg" title="有單據">📸</span>}
+                    </div>
+                  </button>
+                );
+              })}
+              {sortedHistory.length === 0 && !isAddingPast && (
+                <p className="text-center text-sm text-gray-400 py-4">暫時未有紀錄</p>
+              )}
             </div>
 
             {isAddingPast && (
-              <form onSubmit={handlePastSubmit} className="mb-4 p-4 bg-gray-50 border border-indigo-100 rounded-lg flex flex-col gap-3">
+              <form onSubmit={handlePastSubmit} className="mt-4 p-4 bg-gray-50 border border-indigo-100 rounded-lg flex flex-col gap-3">
                 <div>
-                  <label className="text-xs font-bold text-gray-500 uppercase block mb-1">Date</label>
                   <input 
                     type="date" 
                     value={pastDate} 
@@ -486,7 +576,6 @@
                   />
                 </div>
                 <div className="relative">
-                  <label className="text-xs font-bold text-gray-500 uppercase block mb-1">Restaurant</label>
                   <input 
                     type="text" 
                     value={pastRest} 
@@ -496,17 +585,12 @@
                       setPastRest(e.target.value);
                       setShowPastSuggestions(true);
                     }} 
-                    placeholder="Where did you eat?" 
+                    placeholder="餐廳" 
                     className="w-full p-2 border rounded-lg outline-none focus:ring-2 focus:ring-indigo-500 bg-white" 
                     required 
                   />
                   {showPastSuggestions && pastSuggestions.length > 0 && (
                     <ul className="absolute z-20 left-0 right-0 mt-1 bg-white border border-gray-200 rounded-lg shadow-lg max-h-40 overflow-y-auto divide-y divide-gray-100">
-                      {!pastRest.trim() && (
-                        <li className="px-3 py-1.5 bg-gray-50 text-[11px] font-bold text-gray-400 uppercase tracking-wider">
-                          Available to Roll (Excludes Past 3 Days)
-                        </li>
-                      )}
                       {pastSuggestions.map((r, idx) => (
                         <li 
                           key={idx}
@@ -526,54 +610,19 @@
                   )}
                 </div>
                 <button type="submit" className="mt-1 bg-slate-700 text-white font-bold py-2 rounded-lg shadow-md hover:bg-slate-800">
-                  Save Record
+                  儲存
                 </button>
               </form>
             )}
 
-            <div className="space-y-2">
-              {sortedHistory.map((h, i) => {
-                const myPayment = data.payments.find(p => p.date === h.date && p.name === newName);
-                const myPaidStatus = myPayment ? (myPayment.paid === 'TRUE' || myPayment.paid === true) : null;
-
-                const isSelected = selectedDate === h.date;
-                const isToday = h.date === todayStr;
-                
-                const bgClass = isSelected ? 'bg-indigo-50' : 'bg-gray-50 hover:bg-gray-100';
-                const borderClass = isToday 
-                  ? 'border-2 border-gray-800' 
-                  : (isSelected ? 'border border-indigo-200' : 'border border-transparent');
-
-                return (
-                  <button 
-                    key={i}
-                    onClick={() => setSelectedDate(h.date)}
-                    className={`w-full flex justify-between items-center p-3 rounded-lg text-left transition-colors ${bgClass} ${borderClass}`}
-                  >
-                    <div className="flex flex-col">
-                      {isToday ? (
-                        <span className="text-red-600 font-bold text-sm">Today ({formatDisplayDate(h.date)})</span>
-                      ) : (
-                        <span className="text-gray-500 text-sm">{formatDisplayDate(h.date)}</span>
-                      )}
-                      
-                      {myPayment && (
-                        <span className={`text-xs mt-1 font-bold ${myPaidStatus ? 'text-emerald-600' : 'text-rose-600'}`}>
-                          {myPaidStatus ? '✅ Paid' : '❌ Unpaid'}
-                        </span>
-                      )}
-                    </div>
-
-                    <div className="flex items-center gap-2">
-                      <span className="font-bold text-gray-700 text-right">{h.restaurant}</span>
-                      {h.receipt && <span className="text-lg" title="Has receipt">📸</span>}
-                    </div>
-                  </button>
-                );
-              })}
-              {sortedHistory.length === 0 && !isAddingPast && (
-                <p className="text-center text-sm text-gray-400 py-4">No history records found.</p>
-              )}
+            <div className="mt-3 flex justify-center">
+              <button 
+                onClick={() => setIsAddingPast(!isAddingPast)}
+                title={isAddingPast ? '取消' : '補錄'}
+                className="w-9 h-9 rounded-full bg-indigo-50 text-indigo-600 font-bold text-xl flex items-center justify-center hover:bg-indigo-100 transition-colors leading-none"
+              >
+                {isAddingPast ? '×' : '+'}
+              </button>
             </div>
           </div>
         </div>
