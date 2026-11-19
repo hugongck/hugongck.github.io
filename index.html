@@ -211,11 +211,10 @@
       const last3Days = data.history.slice(0, 3).map(h => h.restaurant);
 
       return (
-        <div className="max-w-md mx-auto p-4 font-sans min-h-screen pb-10">
-          <h1 className="text-3xl font-bold text-center mb-6 text-indigo-600 mt-4">Lunch Tracker 🍱</h1>
-
+        <div className="max-w-md mx-auto p-4 font-sans min-h-screen pb-10 pt-6">
+          
           {/* Main Action Card */}
-          <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6 mb-6">
+          <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6 mb-3">
             <div className="text-center mb-4">
               <p className={`text-sm ${selectedDate === todayStr ? 'text-red-600 font-bold text-base' : 'text-gray-500 font-medium'}`}>
                 {selectedDate === todayStr ? `Today (${formatDisplayDate(selectedDate)})` : formatDisplayDate(selectedDate)}
@@ -272,7 +271,7 @@
           </div>
 
           {/* Participants & Payments */}
-          <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6 mb-6">
+          <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6 mb-3">
             <h3 className="font-bold text-lg mb-4 text-gray-700">Participants</h3>
             <form onSubmit={handleAddUser} className="flex gap-2 mb-4">
               <input
@@ -319,14 +318,25 @@
                 const myPayment = data.payments.find(p => p.date === h.date && p.name === newName);
                 const myPaidStatus = myPayment ? (myPayment.paid === 'TRUE' || myPayment.paid === true) : null;
 
+                // Determine border and background styles based on whether the item is Today, and whether it's Selected
+                const isSelected = selectedDate === h.date;
+                const isToday = h.date === todayStr;
+                
+                const bgClass = isSelected ? 'bg-indigo-50' : 'bg-gray-50 hover:bg-gray-100';
+                
+                // Solid black border if it's today. If not today but selected, subtle blue border. Otherwise transparent.
+                const borderClass = isToday 
+                  ? 'border-2 border-gray-800' 
+                  : (isSelected ? 'border border-indigo-200' : 'border border-transparent');
+
                 return (
                   <button 
                     key={i}
                     onClick={() => setSelectedDate(h.date)}
-                    className={`w-full flex justify-between items-center p-3 rounded-lg text-left transition-colors ${selectedDate === h.date ? 'bg-indigo-50 border border-indigo-200' : 'bg-gray-50 hover:bg-gray-100 border border-transparent'}`}
+                    className={`w-full flex justify-between items-center p-3 rounded-lg text-left transition-colors ${bgClass} ${borderClass}`}
                   >
                     <div className="flex flex-col">
-                      {h.date === todayStr ? (
+                      {isToday ? (
                         <span className="text-red-600 font-bold text-sm">Today ({formatDisplayDate(h.date)})</span>
                       ) : (
                         <span className="text-gray-500 text-sm">{formatDisplayDate(h.date)}</span>
