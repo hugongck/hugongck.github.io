@@ -23,6 +23,12 @@
       return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
     };
 
+    // Safely extract date no matter how Google Sheets capitalizes the column header
+    const extractDateFromRow = (row) => {
+      if (!row) return '';
+      return row.date || row.Date || row.DATE || row.timestamp || '';
+    };
+
     // Ultra-safe date normalizer
     const normalizeDate = (raw) => {
       if (!raw) return '';
@@ -40,7 +46,7 @@
 
     // Formatter to render "星期X MM/DD" safely
     const formatDisplayDate = (dateStr) => {
-      if (!dateStr) return '';
+      if (!dateStr) return 'Date Error'; // Shows something is wrong instead of disappearing
       const cleanStr = String(dateStr).split('T')[0];
       const parts = cleanStr.split('-');
       
@@ -55,7 +61,7 @@
           return `星期${days[dateObj.getDay()]} ${m}/${d}`;
         }
       }
-      return cleanStr; // Fallback so the date never fully disappears
+      return cleanStr;
     };
 
     function App() {
@@ -80,7 +86,6 @@
         let isCancelled = false;
 
         const fetchData = async () => {
-          // If we recently made a change, don't even start fetching
           if (Date.now() < pausePollingUntil.current) return;
 
           try {
@@ -88,14 +93,18 @@
             const json = await res.json();
             
             if (isCancelled) return;
-
-            // CRITICAL ANTI-FLASH FIX: 
-            // If the user clicked something WHILE this fetch was happening, 
-            // throw away this old data so it doesn't overwrite our optimistic UI!
             if (Date.now() < pausePollingUntil.current) return;
             
-            json.history = json.history.map(h => ({ ...h, date: normalizeDate(h.date) }));
-            json.payments = json.payments.map(p => ({ ...p, date: normalizeDate(p.date) }));
+            // Map the data using our new safe extraction logic
+            json.history = json.history.map(h => ({ 
+              ...h, 
+              date: normalizeDate(extractDateFromRow(h)) 
+            }));
+            
+            json.payments = json.payments.map(p => ({ 
+              ...p, 
+              date: normalizeDate(extractDateFromRow(p)) 
+            }));
             
             setData(json);
             localStorage.setItem('lunch_data', JSON.stringify(json));
@@ -116,7 +125,6 @@
       }, []);
 
       const postAction = async (payload) => {
-        // Lock background updates for 4 seconds
         pausePollingUntil.current = Date.now() + 4000; 
         try {
           await fetch(API_URL, { method: 'POST', redirect: 'follow', body: JSON.stringify(payload) });
@@ -128,7 +136,6 @@
       const autoAddCurrentUser = () => {
         if (!newName.trim()) return;
         
-        // Optimistic UI
         setData(prev => {
           const exists = prev.payments.find(p => p.date === todayStr && p.name === newName.trim());
           if (exists) return prev;
@@ -138,7 +145,6 @@
           };
         });
         
-        // Backend
         postAction({ action: 'add_user', name: newName.trim(), date: todayStr });
       };
 
@@ -151,7 +157,6 @@
         e.preventDefault();
         if (!customRest.trim()) return;
         
-        // Optimistic UI
         setData(prev => {
           const newHistory = [...prev.history];
           const todayIndex = newHistory.findIndex(h => h.date === todayStr);
@@ -173,7 +178,6 @@
         if (!newName.trim()) return;
         localStorage.setItem('lunch_username', newName.trim());
         
-        // Optimistic UI
         setData(prev => ({
           ...prev,
           payments: [...prev.payments, { date: selectedDate, name: newName, paid: false }]
@@ -185,7 +189,6 @@
       const handleTogglePaid = (name, currentStatus) => {
         const isPaid = currentStatus === 'TRUE' || currentStatus === true;
         
-        // Optimistic UI (Updates Instantly!)
         setData(prev => ({
           ...prev,
           payments: prev.payments.map(p => 
@@ -193,7 +196,6 @@
           )
         }));
         
-        // Backend upload
         postAction({ action: 'toggle_paid', name, date: selectedDate, paid: !isPaid });
       };
 
@@ -205,14 +207,18 @@
         const reader = new FileReader();
         reader.onload = async (ev) => {
           const base64 = ev.target.result;
+          
+          // Bulletproof filename - uses selected date, falls back to today's date
+          const finalDateToUse = selectedDate || todayStr;
+          
           await postAction({
             action: 'upload_receipt',
-            date: selectedDate,
+            date: finalDateToUse,
             base64: base64,
             mimeType: file.type,
-            filename: `${selectedDate}-receipt`
+            filename: `${finalDateToUse}-receipt`
           });
-          // Allow updates again so we can fetch the receipt URL
+          
           pausePollingUntil.current = 0; 
           setUploading(false);
         };
