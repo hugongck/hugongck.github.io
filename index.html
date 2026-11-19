@@ -16,26 +16,38 @@
   <script type="text/babel">
     const { useState, useEffect } = React;
 
-    const API_URL = 'https://script.google.com/macros/s/AKfycbxy2q1WdKxfR9MfUigLdTHVzOaJeXV4_MY6MvwWQOOEsuLUjeaZvyFaEaKn3UbMa7r5/exec'; 
+    // REPLACE THIS WITH YOUR DEPLOYED GOOGLE APPS SCRIPT WEB APP URL
+    const API_URL = 'YOUR_WEB_APP_URL_HERE'; 
 
     function App() {
-      const [data, setData] = useState({ history: [], payments: [], restaurants: [] });
-      const [loading, setLoading] = useState(true);
+      // Load cached data instantly so the user doesn't wait
+      const [data, setData] = useState(() => {
+        const cached = localStorage.getItem('lunch_data');
+        return cached ? JSON.parse(cached) : { history: [], payments: [], restaurants: [] };
+      });
+      
+      // Only show full loading screen if we have absolutely no cached data
+      const [loading, setLoading] = useState(() => !localStorage.getItem('lunch_data'));
       const [uploading, setUploading] = useState(false);
       
-      // Initialize name from localStorage
       const [newName, setNewName] = useState(() => localStorage.getItem('lunch_username') || '');
       const [customRest, setCustomRest] = useState('');
       const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
+      const todayStr = new Date().toISOString().split('T')[0];
 
       useEffect(() => {
         const fetchData = async () => {
           if (API_URL === 'YOUR_WEB_APP_URL_HERE') return setLoading(false);
           try {
-            const res = await fetch(API_URL);
-            setData(await res.json());
+            const res = await fetch(API_URL, { redirect: 'follow' });
+            const json = await res.json();
+            setData(json);
+            localStorage.setItem('lunch_data', JSON.stringify(json)); // Cache the fresh data
             setLoading(false);
-          } catch (e) { console.error(e); }
+          } catch (e) { 
+            console.error(e); 
+            setLoading(false);
+          }
         };
         fetchData();
         const interval = setInterval(fetchData, 3000);
@@ -44,32 +56,45 @@
 
       const postAction = async (payload) => {
         if (API_URL === 'YOUR_WEB_APP_URL_HERE') return alert("Configure API_URL first.");
-        
-        if (payload.action === 'toggle_paid') {
-          setData(prev => ({
-            ...prev,
-            payments: prev.payments.map(p => 
-              (p.name === payload.name && p.date === payload.date) ? { ...p, paid: payload.paid } : p
-            )
-          }));
-        }
-
-        await fetch(API_URL, { method: 'POST', body: JSON.stringify(payload) });
+        await fetch(API_URL, { method: 'POST', redirect: 'follow', body: JSON.stringify(payload) });
       };
 
+      // Random Roll
       const handleRoll = () => {
-        postAction({ action: 'roll_restaurant', customRestaurant: customRest });
+        postAction({ action: 'roll_restaurant' });
+        // We let the polling update the UI for random rolls
+      };
+
+      // Manual Enter
+      const handleManualSubmit = (e) => {
+        e.preventDefault();
+        if (!customRest.trim()) return;
+        
+        postAction({ action: 'set_restaurant', restaurant: customRest.trim() });
+        
+        // Optimistic UI Update: Instantly change it on screen
+        setData(prev => {
+          const newHistory = [...prev.history];
+          const todayIndex = newHistory.findIndex(h => h.date === todayStr);
+          if (todayIndex > -1) {
+            newHistory[todayIndex].restaurant = customRest.trim();
+          } else {
+            newHistory.unshift({ date: todayStr, restaurant: customRest.trim(), receipt: null });
+          }
+          return { ...prev, history: newHistory };
+        });
+        
         setCustomRest('');
       };
 
       const handleAddUser = (e) => {
         e.preventDefault();
         if (!newName.trim()) return;
-        
-        // Save name to localStorage for next time
         localStorage.setItem('lunch_username', newName.trim());
         
         postAction({ action: 'add_user', name: newName, date: selectedDate });
+        
+        // Optimistic UI
         setData(prev => ({
           ...prev,
           payments: [...prev.payments, { date: selectedDate, name: newName, paid: false }]
@@ -79,9 +104,16 @@
       const handleTogglePaid = (name, currentStatus) => {
         const isPaid = currentStatus === 'TRUE' || currentStatus === true;
         postAction({ action: 'toggle_paid', name, date: selectedDate, paid: !isPaid });
+        
+        // Optimistic UI
+        setData(prev => ({
+          ...prev,
+          payments: prev.payments.map(p => 
+            (p.name === name && p.date === selectedDate) ? { ...p, paid: !isPaid } : p
+          )
+        }));
       };
 
-      // NEW: Handle Photo / File Upload
       const handleFileUpload = (e) => {
         const file = e.target.files[0];
         if (!file) return;
@@ -104,7 +136,6 @@
 
       if (loading) return <div className="flex h-screen items-center justify-center font-bold text-xl">Loading...</div>;
 
-      const todayStr = new Date().toISOString().split('T')[0];
       const currentHistory = data.history.find(h => h.date === selectedDate);
       const activeRestaurant = currentHistory?.restaurant || 'Not chosen yet';
       const activeReceipt = currentHistory?.receipt;
@@ -124,18 +155,32 @@
 
             {selectedDate === todayStr && (
               <div className="flex flex-col gap-3 mb-4">
-                <input 
-                  type="text" 
-                  placeholder="Manual input (optional)" 
-                  className="border p-3 rounded-lg text-center bg-gray-50 focus:ring-2 focus:ring-indigo-500 outline-none"
-                  value={customRest}
-                  onChange={e => setCustomRest(e.target.value)}
-                />
+                
+                {/* Updated Manual Input with Enter Button */}
+                <form onSubmit={handleManualSubmit} className="flex gap-2">
+                  <input 
+                    type="text" 
+                    placeholder="Type specific restaurant..." 
+                    className="flex-1 border p-3 rounded-lg bg-gray-50 focus:ring-2 focus:ring-indigo-500 outline-none"
+                    value={customRest}
+                    onChange={e => setCustomRest(e.target.value)}
+                  />
+                  <button type="submit" className="bg-slate-700 text-white font-bold px-4 rounded-lg shadow-md hover:bg-slate-800 transition-all">
+                    Enter
+                  </button>
+                </form>
+
+                <div className="flex items-center gap-3 my-1">
+                  <div className="flex-1 h-px bg-gray-200"></div>
+                  <span className="text-xs text-gray-400 font-bold uppercase">OR</span>
+                  <div className="flex-1 h-px bg-gray-200"></div>
+                </div>
+
                 <button 
                   onClick={handleRoll}
                   className="bg-indigo-600 text-white font-bold py-3 rounded-lg shadow-md hover:bg-indigo-700 active:scale-95 transition-all"
                 >
-                  唔知食咩 🎲
+                  唔知食咩 🎲 (Random Roll)
                 </button>
                 <p className="text-xs text-center text-gray-400">Excludes past 3 days: {last3Days.join(', ') || 'None'}</p>
               </div>
@@ -152,7 +197,6 @@
                 ) : (
                   <label className={`cursor-pointer text-sm font-bold py-2 px-4 rounded-lg transition-colors ${uploading ? 'bg-gray-200 text-gray-500' : 'bg-gray-100 hover:bg-gray-200 text-gray-700'}`}>
                     {uploading ? 'Uploading...' : '📷 Snap / Upload'}
-                    {/* capture="environment" defaults to back camera on mobile */}
                     <input type="file" accept="image/*" capture="environment" className="hidden" onChange={handleFileUpload} disabled={uploading} />
                   </label>
                 )}
