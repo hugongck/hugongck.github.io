@@ -18,6 +18,12 @@
 
     const API_URL = 'https://script.google.com/macros/s/AKfycbxy2q1WdKxfR9MfUigLdTHVzOaJeXV4_MY6MvwWQOOEsuLUjeaZvyFaEaKn3UbMa7r5/exec'; 
 
+    // Safer local timezone calculator
+    const getLocalYYYYMMDD = () => {
+      const d = new Date();
+      return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    };
+
     function App() {
       const [data, setData] = useState(() => {
         const cached = localStorage.getItem('lunch_data');
@@ -29,8 +35,9 @@
       
       const [newName, setNewName] = useState(() => localStorage.getItem('lunch_username') || '');
       const [customRest, setCustomRest] = useState('');
-      const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
-      const todayStr = new Date().toISOString().split('T')[0];
+      
+      const todayStr = getLocalYYYYMMDD();
+      const [selectedDate, setSelectedDate] = useState(todayStr);
 
       useEffect(() => {
         const fetchData = async () => {
