@@ -38,18 +38,42 @@
       return [...list].sort((a, b) => String(b.date).localeCompare(String(a.date)));
     };
 
+    // Normalize restaurant items so it works cleanly with both old string cache and new { name, keywords } objects
+    const normalizeRestaurants = (list) => {
+      if (!Array.isArray(list)) return [];
+      return list.map(item => {
+        if (typeof item === 'string') return { name: item, keywords: '' };
+        return { name: String(item.name || ''), keywords: String(item.keywords || '') };
+      }).filter(item => item.name);
+    };
+
+    // Match user query anywhere inside restaurant name OR keywords
+    const filterRestaurants = (list, query) => {
+      const q = String(query || '').trim().toLowerCase();
+      if (!q) return [];
+      return normalizeRestaurants(list).filter(r => 
+        r.name.toLowerCase().includes(q) || r.keywords.toLowerCase().includes(q)
+      );
+    };
+
     function App() {
       const [data, setData] = useState(() => {
         const cached = localStorage.getItem('lunch_data');
         if (!cached) return { history: [], payments: [], restaurants: [] };
         const parsed = JSON.parse(cached);
-        return { ...parsed, history: sortHistoryDesc(parsed.history || []) };
+        return { 
+          ...parsed, 
+          history: sortHistoryDesc(parsed.history || []),
+          restaurants: normalizeRestaurants(parsed.restaurants || [])
+        };
       });
       
       const [loading, setLoading] = useState(() => !localStorage.getItem('lunch_data'));
       const [uploading, setUploading] = useState(false);
       const [newName, setNewName] = useState(() => localStorage.getItem('lunch_username') || '');
+      
       const [customRest, setCustomRest] = useState('');
+      const [showTodaySuggestions, setShowTodaySuggestions] = useState(false);
       
       const todayStr = getLocalYYYYMMDD();
       const [selectedDate, setSelectedDate] = useState(todayStr);
@@ -57,6 +81,7 @@
       const [isAddingPast, setIsAddingPast] = useState(false);
       const [pastDate, setPastDate] = useState('');
       const [pastRest, setPastRest] = useState('');
+      const [showPastSuggestions, setShowPastSuggestions] = useState(false);
 
       const pausePollingUntil = useRef(0);
 
@@ -71,13 +96,14 @@
             
             if (isCancelled || Date.now() < pausePollingUntil.current) return;
             
-            const sortedJson = {
+            const formattedJson = {
               ...json,
-              history: sortHistoryDesc(json.history || [])
+              history: sortHistoryDesc(json.history || []),
+              restaurants: normalizeRestaurants(json.restaurants || [])
             };
             
-            setData(sortedJson);
-            localStorage.setItem('lunch_data', JSON.stringify(sortedJson));
+            setData(formattedJson);
+            localStorage.setItem('lunch_data', JSON.stringify(formattedJson));
             setLoading(false);
           } catch (e) { 
             console.error(e); 
@@ -117,40 +143,58 @@
         postAction({ action: 'roll_restaurant' });
       };
 
-      const handleManualSubmit = (e) => {
-        e.preventDefault();
-        if (!customRest.trim()) return;
+      const submitTodayRestaurant = (chosenName) => {
+        const cleanName = String(chosenName || '').trim();
+        if (!cleanName) return;
         
         setData(prev => {
           const newHistory = [...prev.history];
           const todayIndex = newHistory.findIndex(h => h.date === todayStr);
           if (todayIndex > -1) {
-            newHistory[todayIndex].restaurant = customRest.trim();
+            newHistory[todayIndex].restaurant = cleanName;
           } else {
-            newHistory.unshift({ date: todayStr, restaurant: customRest.trim(), receipt: null });
+            newHistory.unshift({ date: todayStr, restaurant: cleanName, receipt: null });
           }
-          return { ...prev, history: sortHistoryDesc(newHistory) };
+
+          // Optimistically add to local restaurants list if not already present
+          const currentRests = normalizeRestaurants(prev.restaurants);
+          const exists = currentRests.some(r => r.name.toLowerCase() === cleanName.toLowerCase());
+          const updatedRests = exists ? currentRests : [...currentRests, { name: cleanName, keywords: '' }];
+
+          return { ...prev, history: sortHistoryDesc(newHistory), restaurants: updatedRests };
         });
         
         autoAddCurrentUser();
-        postAction({ action: 'set_restaurant', restaurant: customRest.trim() });
+        postAction({ action: 'set_restaurant', restaurant: cleanName });
         setCustomRest('');
+        setShowTodaySuggestions(false);
+      };
+
+      const handleManualSubmit = (e) => {
+        e.preventDefault();
+        submitTodayRestaurant(customRest);
       };
 
       const handlePastSubmit = (e) => {
         e.preventDefault();
-        if (!pastDate || !pastRest.trim()) return;
+        const cleanRest = pastRest.trim();
+        if (!pastDate || !cleanRest) return;
         
         setData(prev => {
           const newHistory = [...prev.history];
           const existingIndex = newHistory.findIndex(h => h.date === pastDate);
           
           if (existingIndex > -1) {
-            newHistory[existingIndex].restaurant = pastRest.trim();
+            newHistory[existingIndex].restaurant = cleanRest;
           } else {
-            newHistory.push({ date: pastDate, restaurant: pastRest.trim(), receipt: null });
+            newHistory.push({ date: pastDate, restaurant: cleanRest, receipt: null });
           }
-          return { ...prev, history: sortHistoryDesc(newHistory) };
+
+          const currentRests = normalizeRestaurants(prev.restaurants);
+          const exists = currentRests.some(r => r.name.toLowerCase() === cleanRest.toLowerCase());
+          const updatedRests = exists ? currentRests : [...currentRests, { name: cleanRest, keywords: '' }];
+
+          return { ...prev, history: sortHistoryDesc(newHistory), restaurants: updatedRests };
         });
         
         if (newName.trim()) {
@@ -164,11 +208,12 @@
           postAction({ action: 'add_user', name: newName.trim(), date: pastDate });
         }
         
-        postAction({ action: 'set_restaurant', restaurant: pastRest.trim(), date: pastDate });
+        postAction({ action: 'set_restaurant', restaurant: cleanRest, date: pastDate });
         
         setIsAddingPast(false);
         setPastDate('');
         setPastRest('');
+        setShowPastSuggestions(false);
         setSelectedDate(pastDate);
       };
 
@@ -231,6 +276,9 @@
       const activePayments = data.payments.filter(p => p.date === selectedDate);
       const last3Days = sortedHistory.slice(0, 3).map(h => h.restaurant);
 
+      const todaySuggestions = filterRestaurants(data.restaurants, customRest);
+      const pastSuggestions = filterRestaurants(data.restaurants, pastRest);
+
       return (
         <div className="max-w-md mx-auto p-4 font-sans min-h-screen pb-10 pt-6">
           
@@ -262,17 +310,42 @@
 
             {selectedDate === todayStr && activeRestaurant === 'Not chosen yet' && (
               <div className="flex flex-col gap-3 mt-4">
-                <form onSubmit={handleManualSubmit} className="flex gap-2">
-                  <input 
-                    type="text" 
-                    placeholder="Type specific restaurant..." 
-                    className="flex-1 border p-3 rounded-lg bg-gray-50 focus:ring-2 focus:ring-indigo-500 outline-none"
-                    value={customRest}
-                    onChange={e => setCustomRest(e.target.value)}
-                  />
-                  <button type="submit" className="bg-slate-700 text-white font-bold px-4 rounded-lg shadow-md hover:bg-slate-800 transition-all">
-                    Enter
-                  </button>
+                <form onSubmit={handleManualSubmit} className="relative">
+                  <div className="flex gap-2">
+                    <input 
+                      type="text" 
+                      placeholder="Type restaurant or keyword..." 
+                      className="flex-1 border p-3 rounded-lg bg-gray-50 focus:ring-2 focus:ring-indigo-500 outline-none"
+                      value={customRest}
+                      onFocus={() => setShowTodaySuggestions(true)}
+                      onBlur={() => setTimeout(() => setShowTodaySuggestions(false), 180)}
+                      onChange={e => {
+                        setCustomRest(e.target.value);
+                        setShowTodaySuggestions(true);
+                      }}
+                    />
+                    <button type="submit" className="bg-slate-700 text-white font-bold px-4 rounded-lg shadow-md hover:bg-slate-800 transition-all">
+                      Enter
+                    </button>
+                  </div>
+
+                  {/* Autocomplete Dropdown */}
+                  {showTodaySuggestions && todaySuggestions.length > 0 && (
+                    <ul className="absolute z-20 left-0 right-0 mt-1 bg-white border border-gray-200 rounded-lg shadow-lg max-h-48 overflow-y-auto divide-y divide-gray-100">
+                      {todaySuggestions.map((r, idx) => (
+                        <li 
+                          key={idx}
+                          onMouseDown={() => submitTodayRestaurant(r.name)}
+                          className="px-3.5 py-2.5 hover:bg-indigo-50 cursor-pointer flex justify-between items-center gap-2"
+                        >
+                          <span className="font-bold text-gray-800 text-sm">{r.name}</span>
+                          {r.keywords && (
+                            <span className="text-xs text-gray-400 truncate max-w-[45%]">{r.keywords}</span>
+                          )}
+                        </li>
+                      ))}
+                    </ul>
+                  )}
                 </form>
 
                 <div className="flex items-center gap-3 my-1">
@@ -354,21 +427,45 @@
                     type="date" 
                     value={pastDate} 
                     onChange={e => setPastDate(e.target.value)} 
-                    className="w-full p-2 border rounded-lg outline-none focus:ring-2 focus:ring-indigo-500" 
+                    className="w-full p-2 border rounded-lg outline-none focus:ring-2 focus:ring-indigo-500 bg-white" 
                     required 
                     max={todayStr} 
                   />
                 </div>
-                <div>
+                <div className="relative">
                   <label className="text-xs font-bold text-gray-500 uppercase block mb-1">Restaurant</label>
                   <input 
                     type="text" 
                     value={pastRest} 
-                    onChange={e => setPastRest(e.target.value)} 
+                    onFocus={() => setShowPastSuggestions(true)}
+                    onBlur={() => setTimeout(() => setShowPastSuggestions(false), 180)}
+                    onChange={e => {
+                      setPastRest(e.target.value);
+                      setShowPastSuggestions(true);
+                    }} 
                     placeholder="Where did you eat?" 
-                    className="w-full p-2 border rounded-lg outline-none focus:ring-2 focus:ring-indigo-500" 
+                    className="w-full p-2 border rounded-lg outline-none focus:ring-2 focus:ring-indigo-500 bg-white" 
                     required 
                   />
+                  {showPastSuggestions && pastSuggestions.length > 0 && (
+                    <ul className="absolute z-20 left-0 right-0 mt-1 bg-white border border-gray-200 rounded-lg shadow-lg max-h-40 overflow-y-auto divide-y divide-gray-100">
+                      {pastSuggestions.map((r, idx) => (
+                        <li 
+                          key={idx}
+                          onMouseDown={() => {
+                            setPastRest(r.name);
+                            setShowPastSuggestions(false);
+                          }}
+                          className="px-3 py-2 hover:bg-indigo-50 cursor-pointer flex justify-between items-center gap-2"
+                        >
+                          <span className="font-bold text-gray-800 text-sm">{r.name}</span>
+                          {r.keywords && (
+                            <span className="text-xs text-gray-400 truncate max-w-[45%]">{r.keywords}</span>
+                          )}
+                        </li>
+                      ))}
+                    </ul>
+                  )}
                 </div>
                 <button type="submit" className="mt-1 bg-slate-700 text-white font-bold py-2 rounded-lg shadow-md hover:bg-slate-800">
                   Save Record
