@@ -38,7 +38,6 @@
       return [...list].sort((a, b) => String(b.date).localeCompare(String(a.date)));
     };
 
-    // Normalize restaurant items so it works cleanly with both old string cache and new { name, keywords } objects
     const normalizeRestaurants = (list) => {
       if (!Array.isArray(list)) return [];
       return list.map(item => {
@@ -47,11 +46,18 @@
       }).filter(item => item.name);
     };
 
-    // Match user query anywhere inside restaurant name OR keywords
-    const filterRestaurants = (list, query) => {
+    // When query is empty: show all rollable restaurants (excluding recent 3 eaten)
+    // When query is non-empty: search all restaurants by name or keywords
+    const filterRestaurants = (list, query, excludedNames = []) => {
+      const normalized = normalizeRestaurants(list);
       const q = String(query || '').trim().toLowerCase();
-      if (!q) return [];
-      return normalizeRestaurants(list).filter(r => 
+      
+      if (!q) {
+        const excludedSet = new Set(excludedNames.map(n => String(n || '').trim().toLowerCase()));
+        return normalized.filter(r => !excludedSet.has(r.name.toLowerCase()));
+      }
+      
+      return normalized.filter(r => 
         r.name.toLowerCase().includes(q) || r.keywords.toLowerCase().includes(q)
       );
     };
@@ -156,7 +162,6 @@
             newHistory.unshift({ date: todayStr, restaurant: cleanName, receipt: null });
           }
 
-          // Optimistically add to local restaurants list if not already present
           const currentRests = normalizeRestaurants(prev.restaurants);
           const exists = currentRests.some(r => r.name.toLowerCase() === cleanName.toLowerCase());
           const updatedRests = exists ? currentRests : [...currentRests, { name: cleanName, keywords: '' }];
@@ -276,8 +281,8 @@
       const activePayments = data.payments.filter(p => p.date === selectedDate);
       const last3Days = sortedHistory.slice(0, 3).map(h => h.restaurant);
 
-      const todaySuggestions = filterRestaurants(data.restaurants, customRest);
-      const pastSuggestions = filterRestaurants(data.restaurants, pastRest);
+      const todaySuggestions = filterRestaurants(data.restaurants, customRest, last3Days);
+      const pastSuggestions = filterRestaurants(data.restaurants, pastRest, last3Days);
 
       return (
         <div className="max-w-md mx-auto p-4 font-sans min-h-screen pb-10 pt-6">
@@ -332,6 +337,11 @@
                   {/* Autocomplete Dropdown */}
                   {showTodaySuggestions && todaySuggestions.length > 0 && (
                     <ul className="absolute z-20 left-0 right-0 mt-1 bg-white border border-gray-200 rounded-lg shadow-lg max-h-48 overflow-y-auto divide-y divide-gray-100">
+                      {!customRest.trim() && (
+                        <li className="px-3.5 py-1.5 bg-gray-50 text-[11px] font-bold text-gray-400 uppercase tracking-wider">
+                          Available to Roll (Excludes Recent 3)
+                        </li>
+                      )}
                       {todaySuggestions.map((r, idx) => (
                         <li 
                           key={idx}
@@ -449,6 +459,11 @@
                   />
                   {showPastSuggestions && pastSuggestions.length > 0 && (
                     <ul className="absolute z-20 left-0 right-0 mt-1 bg-white border border-gray-200 rounded-lg shadow-lg max-h-40 overflow-y-auto divide-y divide-gray-100">
+                      {!pastRest.trim() && (
+                        <li className="px-3 py-1.5 bg-gray-50 text-[11px] font-bold text-gray-400 uppercase tracking-wider">
+                          Available to Roll (Excludes Recent 3)
+                        </li>
+                      )}
                       {pastSuggestions.map((r, idx) => (
                         <li 
                           key={idx}
